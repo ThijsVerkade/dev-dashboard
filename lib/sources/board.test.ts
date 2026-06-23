@@ -3,6 +3,7 @@ import {
   matchMr, pipelineForSha, computeReadyToMerge, latestPerEnv, envOnThisTicket,
   suggestNextTag, resolveLogGroup, findStagingJob, isPlayableStagingJob, assembleBoard,
 } from './board'
+import { getBoard } from './board'
 import type { MergeRequest, Deployment, Tag, Pipeline, Job } from './gitlab'
 
 const mr = (over: Partial<MergeRequest> = {}): MergeRequest => ({
@@ -100,4 +101,13 @@ test('assembleBoard groups rows by status and correlates a ticket', () => {
   expect(row.suggestedTag).toBe('v1.0.1')
   // PROJ-9 has no MR
   expect(board.columns[1].rows[0].mr).toBeUndefined()
+})
+
+test('getBoard reports unconfigured when Jira env missing', async () => {
+  delete process.env.JIRA_HOST
+  delete process.env.JIRA_EMAIL
+  delete process.env.JIRA_TOKEN
+  const r = await getBoard()
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.reason).toBe('unconfigured')
 })

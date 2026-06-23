@@ -1,3 +1,11 @@
+import 'server-only'
+import { getActiveSprint } from './jira'
+import {
+  getDiscoveredProjects, getMergeRequests, getDeployments, getTags,
+  getMrApprovals, getCanWrite, getJobs, getPipelines,
+} from './gitlab'
+import { dashboardConfig } from '@/dashboard.config'
+import { ok, type Result } from '@/lib/result'
 import type { Issue } from './jira'
 import type { MergeRequest, Deployment, Tag, Approvals, Pipeline, Job } from './gitlab'
 
@@ -144,4 +152,61 @@ export function assembleBoard(args: {
   }
   for (const row of rows) cols.get(row.status)!.rows.push(row)
   return { columns: order.map((s) => cols.get(s)!), canWrite: args.canWrite }
+}
+
+export async function getBoard(): Promise<Result<Board>> {
+  const sprint = await getActiveSprint()
+  if (!sprint.ok) return sprint
+
+  const projectsRes = await getDiscoveredProjects()
+  if (!projectsRes.ok) return projectsRes
+
+  const pipelinesRes = await getPipelines()
+  const allPipelines = pipelinesRes.ok ? pipelinesRes.data : []
+
+  // Per project: MRs, deployments, tags. Failures degrade to empty for that project.
+  const projects: ProjectData[] = await Promise.all(
+    projectsRes.data.map(async (project) => {
+      const [mrs, deployments, tags] = await Promise.all([getMergeRequests(project), getDeployments(project), getTags(project)])
+      return {
+        project,
+        mrs: mrs.ok ? mrs.data : [],
+        pipelines: allPipelines.filter((p) => p.project === project),
+        deployments: deployments.ok ? deployments.data : [],
+        tags: tags.ok ? tags.data : [],
+      }
+    }),
+  )
+
+  // For only the MRs matched to a sprint ticket, fetch approvals + staging job (bounded by sprint size).
+  const allMrs = projects.flatMap((p) => p.mrs)
+  const matched = sprint.data
+    .map((issue) => matchMr(issue.key, allMrs))
+    .filter((m): m is NonNullable<typeof m> => Boolean(m))
+  const uniqueMatched = [...new Map(matched.map((m) => [`${m.project}#${m.iid}`, m])).values()]
+
+  const mrDetails: MrDetail[] = await Promise.all(
+    uniqueMatched.map(async (m) => {
+      const approvalsRes = await getMrApprovals(m.project, m.iid)
+      const pd = projects.find((p) => p.project === m.project)
+      const pipeline = pd ? pipelineForSha(m.sha, pd.pipelines) : undefined
+      let stagingJob
+      if (pipeline) {
+        const jobsRes = await getJobs(m.project, pipeline.id)
+        if (jobsRes.ok) stagingJob = findStagingJob(jobsRes.data, dashboardConfig.stagingJobName)
+      }
+      return {
+        project: m.project, iid: m.iid,
+        approvals: approvalsRes.ok ? approvalsRes.data : { required: 0, given: 0 },
+        stagingJob,
+      }
+    }),
+  )
+
+  const canWrite = await getCanWrite()
+  return ok(assembleBoard({
+    issues: sprint.data, projects, mrDetails,
+    logGroups: dashboardConfig.cloudwatchLogGroups, canWrite,
+    stagingJobName: dashboardConfig.stagingJobName,
+  }))
 }
