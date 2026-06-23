@@ -1,5 +1,6 @@
 "use client"
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
   CommandDialog,
   CommandEmpty,
@@ -15,6 +16,7 @@ import { Search } from "lucide-react"
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,10 +29,10 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", onKey)
   }, [])
 
-  const go = useCallback((id: string) => {
+  const go = (href: string) => {
     setOpen(false)
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }, [])
+    router.push(href)
+  }
 
   return (
     <>
@@ -42,22 +44,22 @@ export function CommandPalette() {
         aria-label="Open command palette"
       >
         <Search className="size-3.5" />
-        <span className="hidden sm:inline">jump to…</span>
+        <span className="hidden sm:inline">go to…</span>
         <CommandShortcut className="hidden sm:inline">⌘K</CommandShortcut>
       </Button>
       <CommandDialog
         open={open}
         onOpenChange={setOpen}
-        title="Jump to panel"
-        description="Scroll to a dashboard panel"
+        title="Go to page"
+        description="Navigate to a dashboard page"
         className="font-mono"
       >
-        <CommandInput placeholder="jump to panel…" />
+        <CommandInput placeholder="go to page…" />
         <CommandList>
-          <CommandEmpty>No panel found.</CommandEmpty>
-          <CommandGroup heading="panels">
+          <CommandEmpty>No page found.</CommandEmpty>
+          <CommandGroup heading="pages">
             {navItems.map((item) => (
-              <CommandItem key={item.id} value={item.title} onSelect={() => go(item.id)}>
+              <CommandItem key={item.href} value={item.title} onSelect={() => go(item.href)}>
                 <item.icon />
                 <span>{item.title}</span>
               </CommandItem>

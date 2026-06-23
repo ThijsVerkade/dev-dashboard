@@ -5,6 +5,13 @@ import { PanelShell } from '@/components/panel-shell'
 import { LiveTail } from '@/components/live-tail'
 import { AssigneePicker } from '@/components/assignee-picker'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { Board, BoardColumn, BoardRow } from '@/lib/sources/board'
 
 type Pending = { label: string; run: () => Promise<void> } | null
@@ -85,6 +92,7 @@ export function BoardPanel() {
   const [pending, setPending] = useState<Pending>(null)
   const [tailGroup, setTailGroup] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState('ALL')
 
   const confirm = (label: string, run: () => Promise<void>) => setPending({ label, run })
 
@@ -92,6 +100,9 @@ export function BoardPanel() {
     <PanelShell<Board> title="Release Flow" result={data} loading={loading}>
       {(board) => {
         const stages = groupIntoStages(board.columns)
+        const assignees = [...new Set(board.columns.flatMap((c) => c.rows.map((r) => r.assignee)))].sort()
+        const who = filter === 'ALL' ? null : filter
+        const total = Object.values(stages).reduce((n, rows) => n + (who ? rows.filter((r) => r.assignee === who).length : rows.length), 0)
         return (
           <div className="space-y-3">
             {!board.canWrite && (
@@ -99,9 +110,30 @@ export function BoardPanel() {
             )}
             {error && <p className="font-mono text-xs text-destructive">[ FAIL ] {error}</p>}
 
+            <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+              <span className="text-muted-foreground">filter assignee:</span>
+              <Select value={filter} onValueChange={setFilter}>
+                <SelectTrigger size="sm" className="h-7 w-56 font-mono text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="font-mono text-xs">
+                  <SelectItem value="ALL">All assignees</SelectItem>
+                  {assignees.map((a) => (
+                    <SelectItem key={a} value={a}>{a}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {who && (
+                <>
+                  <span className="text-muted-foreground tabular-nums">{total} ticket{total === 1 ? '' : 's'}</span>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setFilter('ALL')}>clear</Button>
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
               {STAGES.map((stage) => {
-                const rows = stages[stage.id]
+                const rows = who ? stages[stage.id].filter((r) => r.assignee === who) : stages[stage.id]
                 return (
                   <div key={stage.id} className="flex min-w-0 flex-col rounded-none border border-border bg-card/40">
                     <h3 className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-2 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
