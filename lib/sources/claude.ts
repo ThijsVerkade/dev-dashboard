@@ -2,7 +2,7 @@ import 'server-only'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { join } from 'node:path'
-import { Result, ok, failure } from '@/lib/result'
+import { Result, ok, failure, unconfigured } from '@/lib/result'
 
 const run = promisify(execFile)
 
@@ -67,6 +67,8 @@ export async function getSummary(): Promise<Result<ClaudeSummary>> {
   try {
     return ok(parseDaily(await ccusage('daily')))
   } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT')
+      return unconfigured('ccusage not found — run: npm install')
     return failure(e instanceof Error ? e.message : 'Failed to run ccusage')
   }
 }
@@ -75,6 +77,8 @@ export async function getSessions(): Promise<Result<ClaudeSession[]>> {
   try {
     return ok(parseSessions(await ccusage('session')))
   } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT')
+      return unconfigured('ccusage not found — run: npm install')
     return failure(e instanceof Error ? e.message : 'Failed to run ccusage')
   }
 }

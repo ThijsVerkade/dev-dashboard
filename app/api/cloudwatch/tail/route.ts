@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const group = req.nextUrl.searchParams.get('group') ?? ''
+  if (!group) return new Response('group query param required', { status: 400 })
   const encoder = new TextEncoder()
 
   const OVERLAP = 30_000 // re-query 30s back each tick so late-ingested events aren't skipped
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
     async start(controller) {
       let start = Date.now() - 5 * 60 * 1000 // last 5 minutes
       let stop = false
-      const seen = new Set<string>() // dedupe by eventId across the overlapping windows
+      const seen = new Map<string, number>() // eventId -> timestamp; dedupe across overlapping windows
       req.signal.addEventListener('abort', () => { stop = true })
       const send = (event: string, data: string) => {
         if (stop) return
@@ -27,13 +28,14 @@ export async function GET(req: NextRequest) {
         let maxTs = start
         for (const ev of r.data) {
           if (ev.id && seen.has(ev.id)) continue
-          if (ev.id) seen.add(ev.id)
+          if (ev.id) seen.set(ev.id, ev.timestamp)
           send('event', JSON.stringify(ev))
           if (ev.timestamp > maxTs) maxTs = ev.timestamp
         }
         // Advance the cursor but stay OVERLAP behind newest; dedupe drops re-seen events.
         start = Math.max(start, maxTs - OVERLAP)
-        if (seen.size > 5000) seen.clear() // bound memory on long-lived tails
+        const cutoff = maxTs - OVERLAP
+        for (const [id, ts] of seen) if (ts < cutoff) seen.delete(id)
         await new Promise((res) => setTimeout(res, 3000))
       }
       send('done', '"end"')

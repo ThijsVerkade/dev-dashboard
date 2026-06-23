@@ -12,6 +12,8 @@ export function usePoll<T>(url: string, intervalMs: number) {
         const res = await fetch(url)
         const json = (await res.json()) as Result<T>
         if (active) setData(json)
+      } catch (err) {
+        if (active) setData({ ok: false, reason: 'error', message: err instanceof Error ? err.message : 'Request failed' })
       } finally {
         if (active) setLoading(false)
       }
