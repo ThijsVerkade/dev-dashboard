@@ -15,7 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import { Check, ChevronsUpDown } from 'lucide-react'
+import { Bot, Check, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Board, BoardColumn, BoardRow } from '@/lib/sources/board'
 
@@ -97,6 +97,7 @@ export function BoardPanel() {
   const [pending, setPending] = useState<Pending>(null)
   const [tailGroup, setTailGroup] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [detail, setDetail] = useState<BoardRow | null>(null)
 
@@ -117,6 +118,7 @@ export function BoardPanel() {
               <p className="font-mono text-[11px] text-amber-500">[ ---- ] read-only GitLab token — merge/deploy/tag disabled.</p>
             )}
             {error && <p className="font-mono text-xs text-destructive">[ FAIL ] {error}</p>}
+            {notice && <p className="font-mono text-xs text-primary">[  OK  ] {notice}</p>}
 
             <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
               <span className="text-muted-foreground">filter assignee:</span>
@@ -167,7 +169,22 @@ export function BoardPanel() {
                         <div key={row.key} className="space-y-1 rounded-none border border-border bg-background/60 p-1.5 text-xs">
                           <div className="flex items-center justify-between gap-2">
                             <button type="button" onClick={() => setDetail(row)} className="shrink-0 font-mono text-primary hover:underline">{row.key}</button>
-                            <AssigneePicker issueKey={row.key} current={row.assignee} />
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="Send this ticket to a Claude agent (autonomous: bypasses permissions, pushes & opens an MR)"
+                                className="size-5 p-0 text-muted-foreground hover:text-primary"
+                                onClick={() => confirm(`Send ${row.key} to Claude — autonomous, bypasses permissions, pushes & opens an MR`, async () => {
+                                  const err = await post('/api/agent/start', { key: row.key })
+                                  if (err) setError(err)
+                                  else setNotice(`Dispatched ${row.key} → see Agents page`)
+                                })}
+                              >
+                                <Bot className="size-3" />
+                              </Button>
+                              <AssigneePicker issueKey={row.key} current={row.assignee} />
+                            </div>
                           </div>
                           <button type="button" onClick={() => setDetail(row)} className="block w-full truncate text-left text-foreground/90 hover:text-foreground" title={row.summary}>{row.summary}</button>
                           <FlowPills row={row} />
@@ -240,7 +257,7 @@ export function BoardPanel() {
                   <div className="flex justify-end gap-2">
                     <Button size="sm" variant="outline" onClick={() => setPending(null)}>Cancel</Button>
                     <Button size="sm"
-                      onClick={async () => { const p = pending; setPending(null); setError(null); await p.run() }}>Confirm</Button>
+                      onClick={async () => { const p = pending; setPending(null); setError(null); setNotice(null); await p.run() }}>Confirm</Button>
                   </div>
                 </div>
               </div>
