@@ -4,6 +4,7 @@ import { usePoll } from '@/lib/use-poll'
 import { PanelShell } from '@/components/panel-shell'
 import { LiveTail } from '@/components/live-tail'
 import { AssigneePicker } from '@/components/assignee-picker'
+import { TicketDetail } from '@/components/ticket-detail'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -97,6 +98,7 @@ export function BoardPanel() {
   const [tailGroup, setTailGroup] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>([])
+  const [detail, setDetail] = useState<BoardRow | null>(null)
 
   const confirm = (label: string, run: () => Promise<void>) => setPending({ label, run })
 
@@ -164,10 +166,10 @@ export function BoardPanel() {
                       {rows.map((row) => (
                         <div key={row.key} className="space-y-1 rounded-none border border-border bg-background/60 p-1.5 text-xs">
                           <div className="flex items-center justify-between gap-2">
-                            <a href={row.url} target="_blank" rel="noreferrer" className="shrink-0 font-mono text-primary hover:underline">{row.key}</a>
+                            <button type="button" onClick={() => setDetail(row)} className="shrink-0 font-mono text-primary hover:underline">{row.key}</button>
                             <AssigneePicker issueKey={row.key} current={row.assignee} />
                           </div>
-                          <div className="truncate text-foreground/90" title={row.summary}>{row.summary}</div>
+                          <button type="button" onClick={() => setDetail(row)} className="block w-full truncate text-left text-foreground/90 hover:text-foreground" title={row.summary}>{row.summary}</button>
                           <FlowPills row={row} />
                           {(row.mr || row.repo || row.envs.some((e) => e.onThisTicket && e.logGroup)) && (
                             <div className="flex flex-wrap gap-1 pt-0.5">
@@ -243,6 +245,8 @@ export function BoardPanel() {
                 </div>
               </div>
             )}
+
+            <TicketDetail row={detail} onClose={() => setDetail(null)} />
           </div>
         )
       }}
