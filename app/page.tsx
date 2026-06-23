@@ -1,3 +1,4 @@
+import { BoardPanel } from '@/components/board-panel'
 import { PipelinesPanel } from '@/components/pipelines-panel'
 import { LogsPanel } from '@/components/logs-panel'
 import { ClaudePanel } from '@/components/claude-panel'
@@ -7,6 +8,7 @@ export default function Home() {
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-6">
       <h1 className="text-2xl font-bold">dev-dashboard</h1>
+      <BoardPanel />
       <div className="grid gap-6 lg:grid-cols-2">
         <PipelinesPanel />
         <ClaudePanel />
