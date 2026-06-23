@@ -65,6 +65,36 @@ cloudwatchLogGroups: {
 },
 ```
 
+## Trigger agents from your phone (Tailscale)
+
+The Agents page dispatches a Jira ticket to a headless `claude` agent that
+runs **on this machine**. To trigger and watch jobs from your phone:
+
+1. Install [Tailscale](https://tailscale.com/) on both the Mac and the phone,
+   signed into the same tailnet.
+2. On the Mac, run the dashboard bound to all interfaces:
+   - `npm run dev:lan` (or `npm run start:lan` for a production build)
+3. On the phone, open `http://<mac>.<tailnet>.ts.net:3000/m` — the Mac's
+   Tailscale MagicDNS name. `/m` is a phone-optimized view: your assigned
+   tickets with a **Dispatch** button, plus a live list of running jobs.
+
+### Trigger PIN (`AGENT_TRIGGER_TOKEN`)
+
+Dispatching runs an autonomous agent with bypassed permissions, so the
+mutating endpoints can require a shared secret as defense-in-depth on top of
+Tailscale:
+
+- Set `AGENT_TRIGGER_TOKEN=<some-pin>` in `.env.local`.
+- When set, `POST /api/agent/start` and the cancel endpoint require an
+  `x-agent-token` header matching the PIN. Enter the PIN once on each device
+  (phone `/m` page or the desktop Agents page) — it is stored in
+  `localStorage` and attached automatically.
+- When unset, no PIN is required (default).
+
+Binding to `0.0.0.0` also exposes port 3000 on any other network the Mac
+joins; the PIN mitigates this. Leave the server on `npm run dev`
+(loopback-only) when you don't need phone access.
+
 ## Notes & known limitations
 
 - The Claude session table's "Project" column shows the `ccusage` agent name (e.g. `claude`), not a repo path — `ccusage` does not expose a project path per session.
