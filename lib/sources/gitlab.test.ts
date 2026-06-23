@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mapPipeline, getPipelines } from './gitlab'
+import { mapPipeline, getPipelines, excludeProjects } from './gitlab'
 
 test('mapPipeline maps raw GitLab pipeline to our shape', () => {
   const raw = {
@@ -27,4 +27,12 @@ test('getPipelines reports unconfigured when env missing', async () => {
   const r = await getPipelines()
   expect(r.ok).toBe(false)
   if (!r.ok) expect(r.reason).toBe('unconfigured')
+})
+
+test('excludeProjects drops an exact match and any nested paths', () => {
+  expect(excludeProjects(['a/b', 'a/b/c', 'a/d'], ['a/b'])).toEqual(['a/d'])
+})
+
+test('excludeProjects returns all paths when excludes is empty', () => {
+  expect(excludeProjects(['a/b', 'a/b/c', 'a/d'], [])).toEqual(['a/b', 'a/b/c', 'a/d'])
 })
