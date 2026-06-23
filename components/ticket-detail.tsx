@@ -24,6 +24,18 @@ import type { Pipeline, Job } from '@/lib/sources/gitlab'
 
 const shortRef = (r: string) => r.replace('refs/merge-requests/', 'mr!').replace(/\/head$/, '')
 
+// Group jobs by pipeline stage, preserving first-seen order, so the dialog can
+// render them left-to-right like a pipeline graph (one column per stage).
+function groupByStage(jobs: Job[]): [string, Job[]][] {
+  const order: string[] = []
+  const map = new Map<string, Job[]>()
+  for (const j of jobs) {
+    if (!map.has(j.stage)) { order.push(j.stage); map.set(j.stage, []) }
+    map.get(j.stage)!.push(j)
+  }
+  return order.map((s) => [s, map.get(s)!] as [string, Job[]])
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-0.5">
@@ -37,6 +49,8 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
   const [jobs, setJobs] = useState<Job[] | null>(null)
   const [jobsError, setJobsError] = useState<string | null>(null)
   const [openJob, setOpenJob] = useState<number | null>(null)
+  const [playBusy, setPlayBusy] = useState<number | null>(null)
+  const [playError, setPlayError] = useState<string | null>(null)
 
   useEffect(() => {
     setJobs(null)
@@ -67,6 +81,23 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
 
   const mr = row?.mr
   const project = row?.repo?.project
+
+  const play = async (job: Job) => {
+    if (!project) return
+    if (!window.confirm(`Run manual job ${job.stage} / ${job.name}?`)) return
+    setPlayBusy(job.id)
+    setPlayError(null)
+    try {
+      const res = await fetch(`/api/gitlab/jobs/${job.id}/play?project=${encodeURIComponent(project)}`, { method: 'POST' })
+      const json = await res.json()
+      if (json.ok) setJobs((cur) => (cur ? cur.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)) : cur))
+      else setPlayError(json.message ?? 'Play failed')
+    } catch {
+      setPlayError('Play failed')
+    } finally {
+      setPlayBusy(null)
+    }
+  }
 
   return (
     <Dialog open={!!row} onOpenChange={(o) => !o && onClose()}>
@@ -152,30 +183,29 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
                   <p className="font-mono text-xs text-muted-foreground">No pipeline found for {mr.sha.slice(0, 8)}.</p>
                 )}
                 {jobs && jobs.length > 0 && (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[88px]">status</TableHead>
-                        <TableHead>stage / job</TableHead>
-                        <TableHead className="text-right">trace</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {jobs.map((j) => (
-                        <TableRow key={j.id}>
-                          <TableCell><StatusBadge status={j.status} /></TableCell>
-                          <TableCell className="font-mono">{j.stage} / {j.name}</TableCell>
-                          <TableCell className="text-right">
-                            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]"
-                              onClick={() => setOpenJob(openJob === j.id ? null : j.id)}>
-                              {openJob === j.id ? 'hide' : 'tail'}
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {groupByStage(jobs).map(([stage, stageJobs]) => (
+                      <div key={stage} className="flex w-[160px] shrink-0 flex-col gap-1">
+                        <div className="border-b border-border pb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{stage}</div>
+                        {stageJobs.map((j) => (
+                          <div key={j.id} className="space-y-1 rounded-none border border-border bg-background/60 p-1.5">
+                            <StatusBadge status={j.status} />
+                            <div className="truncate font-mono text-[11px]" title={j.name}>{j.name}</div>
+                            <div className="flex flex-wrap gap-1">
+                              {j.status === 'manual' && (
+                                <Button size="sm" variant="outline" disabled={playBusy === j.id} className="h-5 px-1.5 text-[10px]"
+                                  onClick={() => play(j)}>{playBusy === j.id ? '…' : '▶ run'}</Button>
+                              )}
+                              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]"
+                                onClick={() => setOpenJob(openJob === j.id ? null : j.id)}>{openJob === j.id ? 'hide' : 'tail'}</Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
                 )}
+                {playError && <p className="font-mono text-xs text-destructive">[ FAIL ] {playError}</p>}
                 {openJob !== null && project && (
                   <LiveTail src={`/api/gitlab/jobs/${openJob}/trace?project=${encodeURIComponent(project)}`} />
                 )}
