@@ -10,4 +10,11 @@ export const env = {
   awsRegion(): string | undefined {
     return process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION
   },
+  jira(): { host: string; email: string; token: string } | null {
+    const host = process.env.JIRA_HOST
+    const email = process.env.JIRA_EMAIL
+    const token = process.env.JIRA_TOKEN
+    if (!host || !email || !token) return null
+    return { host, email, token }
+  },
 }

@@ -1,6 +1,7 @@
 import { PipelinesPanel } from '@/components/pipelines-panel'
 import { LogsPanel } from '@/components/logs-panel'
 import { ClaudePanel } from '@/components/claude-panel'
+import { JiraPanel } from '@/components/jira-panel'
 
 export default function Home() {
   return (
@@ -9,6 +10,7 @@ export default function Home() {
       <div className="grid gap-6 lg:grid-cols-2">
         <PipelinesPanel />
         <ClaudePanel />
+        <JiraPanel />
         <div className="lg:col-span-2"><LogsPanel /></div>
       </div>
     </main>

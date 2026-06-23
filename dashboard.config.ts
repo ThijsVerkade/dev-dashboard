@@ -9,4 +9,5 @@ export const dashboardConfig = {
   gitlabGroups: parseEnvList(process.env.GITLAB_GROUPS),
   gitlabExcludes: parseEnvList(process.env.GITLAB_EXCLUDE),
   cloudwatchLogGroups: [] as string[], // e.g. ['/aws/lambda/my-fn']
+  jiraProjects: parseEnvList(process.env.JIRA_PROJECTS),
 }
