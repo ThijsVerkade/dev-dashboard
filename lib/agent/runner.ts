@@ -15,7 +15,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { dashboardConfig } from '@/dashboard.config'
 import { getIssueDetail } from '@/lib/sources/jira'
-import { projectKeyOf, slugify, buildAgentPrompt } from '@/lib/agent/prompt'
+import { projectKeyOf, slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
 import { Result, ok, failure } from '@/lib/result'
 
@@ -33,7 +33,6 @@ export type JobMeta = {
 export type JobDetail = { meta: JobMeta; events: LiveEvent[]; mrUrl: string | null }
 
 const JOBS_DIR = join(process.cwd(), '.agent-jobs')
-const BASE_BRANCH = 'main'
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude'
 const TAIL_BYTES = 256 * 1024
 
@@ -86,10 +85,11 @@ function reconcile(m: JobMeta): JobMeta {
 /** Resolve repo, build the prompt from the ticket, spawn a detached headless agent. */
 export async function startJob(key: string): Promise<Result<{ id: string }>> {
   const projectKey = projectKeyOf(key)
-  const repoName = dashboardConfig.agentRepos[projectKey]
-  if (!repoName)
-    return failure(`No repo mapped for project "${projectKey}". Set AGENT_REPOS (e.g. ${projectKey}:my-repo).`)
+  const spec = dashboardConfig.agentRepos[projectKey]
+  if (!spec)
+    return failure(`No repo mapped for project "${projectKey}". Set AGENT_REPOS (e.g. ${projectKey}:my-repo or ${projectKey}:my-repo@develop).`)
 
+  const { repo: repoName, baseBranch } = parseRepoSpec(spec)
   const repoPath = join(workspaceDir(), repoName)
   if (!existsSync(join(repoPath, '.git'))) return failure(`Git repo not found at ${repoPath}`)
 
@@ -97,7 +97,7 @@ export async function startJob(key: string): Promise<Result<{ id: string }>> {
   if (!detail.ok) return detail
 
   const branch = `feat/${detail.data.key}-${slugify(detail.data.summary) || 'work'}`
-  const prompt = buildAgentPrompt(detail.data, { branch, baseBranch: BASE_BRANCH })
+  const prompt = buildAgentPrompt(detail.data, { branch, baseBranch })
   const id = `${detail.data.key}-${Date.now()}`
 
   try {
@@ -115,7 +115,7 @@ export async function startJob(key: string): Promise<Result<{ id: string }>> {
       key: detail.data.key,
       repo: repoName,
       branch,
-      baseBranch: BASE_BRANCH,
+      baseBranch,
       status: 'running',
       startedAt: new Date().toISOString(),
       pid: child.pid ?? 0,

@@ -1,5 +1,11 @@
 import { expect, test } from 'vitest'
-import { projectKeyOf, slugify, buildAgentPrompt } from './prompt'
+import { projectKeyOf, slugify, buildAgentPrompt, parseRepoSpec } from './prompt'
+
+test('parseRepoSpec defaults the base branch to main and supports @branch', () => {
+  expect(parseRepoSpec('auction-api')).toEqual({ repo: 'auction-api', baseBranch: 'main' })
+  expect(parseRepoSpec('auction-api@develop')).toEqual({ repo: 'auction-api', baseBranch: 'develop' })
+  expect(parseRepoSpec('  auction-api @ develop ')).toEqual({ repo: 'auction-api', baseBranch: 'develop' })
+})
 
 test('projectKeyOf takes the part before the first dash', () => {
   expect(projectKeyOf('NBDE-817')).toBe('NBDE')

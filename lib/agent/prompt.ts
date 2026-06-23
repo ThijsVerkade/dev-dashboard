@@ -5,6 +5,12 @@ export type IssueDetail = {
   url: string
 }
 
+/** Parse an AGENT_REPOS value `repo` or `repo@branch` into its parts (branch defaults to main). */
+export function parseRepoSpec(value: string): { repo: string; baseBranch: string } {
+  const [repo, branch] = value.split('@')
+  return { repo: repo.trim(), baseBranch: (branch ?? '').trim() || 'main' }
+}
+
 /** 'NBDE-817' -> 'NBDE'. Jira project key is the part before the first dash. */
 export function projectKeyOf(issueKey: string): string {
   const i = issueKey.indexOf('-')
