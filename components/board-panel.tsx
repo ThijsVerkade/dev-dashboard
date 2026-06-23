@@ -3,23 +3,52 @@ import { useState } from 'react'
 import { usePoll } from '@/lib/use-poll'
 import { PanelShell } from '@/components/panel-shell'
 import { LiveTail } from '@/components/live-tail'
+import { AssigneePicker } from '@/components/assignee-picker'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 import type { Board, BoardRow } from '@/lib/sources/board'
 
 type Pending = { label: string; run: () => Promise<void> } | null
 
-function flowStrip(row: BoardRow): string {
-  const mark = (ok: boolean) => (ok ? '✓' : '–')
+const ENVS = ['dev', 'acceptance', 'staging', 'production'] as const
+const ENV_SHORT: Record<string, string> = { dev: 'D', acceptance: 'A', staging: 'S', production: 'P' }
+
+function pipelineTone(status?: string): string {
+  if (status === 'success') return 'text-primary'
+  if (status === 'failed') return 'text-destructive'
+  if (status === 'running' || status === 'pending') return 'text-amber-500'
+  return 'text-muted-foreground'
+}
+
+function FlowPills({ row }: { row: BoardRow }) {
   const mr = row.mr
-  const env = (name: string) => `${name} ${mark(row.envs.some((e) => e.name === name && e.onThisTicket))}`
-  return [
-    `branch ${mark(Boolean(mr))}`,
-    `MR ${mark(Boolean(mr))}`,
-    mr ? `approvals ${mr.approvalsGiven}/${mr.approvalsRequired}` : 'approvals –',
-    `pipeline ${mr?.pipelineStatus ?? '–'}`,
-    env('dev'), env('acceptance'), env('staging'), env('production'),
-  ].join(' · ')
+  const apprOk = mr ? mr.approvalsGiven >= mr.approvalsRequired : false
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px]">
+      <span className={mr ? 'text-primary' : 'text-muted-foreground'}>br{mr ? '✓' : '·'}</span>
+      <span className={mr ? 'text-primary' : 'text-muted-foreground'}>mr{mr ? '✓' : '·'}</span>
+      {mr && (
+        <span className={apprOk ? 'text-primary' : 'text-amber-500'} title="approvals">
+          apr {mr.approvalsGiven}/{mr.approvalsRequired}
+        </span>
+      )}
+      {mr && (
+        <span className={pipelineTone(mr.pipelineStatus)} title={`pipeline ${mr.pipelineStatus ?? 'none'}`}>
+          pl {mr.pipelineStatus ? mr.pipelineStatus.slice(0, 4) : '·'}
+        </span>
+      )}
+      <span className="ml-1 flex items-center gap-1 text-muted-foreground" title="dev / acceptance / staging / production">
+        {ENVS.map((name) => {
+          const on = row.envs.some((e) => e.name === name && e.onThisTicket)
+          return (
+            <span key={name} className={on ? 'text-primary' : 'text-muted-foreground/40'}>
+              {ENV_SHORT[name]}
+            </span>
+          )
+        })}
+      </span>
+    </div>
+  )
 }
 
 async function post(url: string, body: unknown): Promise<string | null> {
@@ -39,68 +68,72 @@ export function BoardPanel() {
   return (
     <PanelShell<Board> title="Release Flow" result={data} loading={loading}>
       {(board) => (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {!board.canWrite && (
-            <p className="font-mono text-xs text-amber-500">[ ---- ] read-only GitLab token — actions disabled. Use an `api`-scoped token to enable merge/deploy/tag.</p>
+            <p className="font-mono text-[11px] text-amber-500">[ ---- ] read-only GitLab token — merge/deploy/tag disabled.</p>
           )}
           {error && <p className="font-mono text-xs text-destructive">[ FAIL ] {error}</p>}
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {board.columns.map((col) => (
-              <div key={col.status} className="space-y-2">
-                <h3 className="font-mono text-sm font-semibold">{col.status} <span className="text-muted-foreground">({col.rows.length})</span></h3>
+              <div key={col.status} className="space-y-1.5">
+                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {col.status} <span className="text-muted-foreground/60">({col.rows.length})</span>
+                </h3>
                 {col.rows.map((row) => (
-                  <Card key={row.key} className="gap-1 rounded-none border-border p-2 text-xs">
-                    <div className="flex justify-between gap-2">
-                      <a href={row.url} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{row.key}</a>
-                      <span className="truncate text-muted-foreground">{row.assignee}</span>
+                  <div key={row.key} className="space-y-1 rounded-none border border-border bg-card/60 p-1.5 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <a href={row.url} target="_blank" rel="noreferrer" className="shrink-0 font-mono text-primary hover:underline">{row.key}</a>
+                      <AssigneePicker issueKey={row.key} current={row.assignee} />
                     </div>
-                    <div className="truncate">{row.summary}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{flowStrip(row)}</div>
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {row.mr && (
-                        <Button
-                          size="sm"
-                          disabled={!board.canWrite || !row.readyToMerge}
-                          title={!board.canWrite ? 'Needs api-scoped token' : !row.readyToMerge ? 'Not ready (approvals/pipeline/conflicts)' : ''}
-                          className="h-6 px-2 text-xs"
-                          onClick={() => confirm(`Merge MR !${row.mr!.iid} into main`, async () => {
-                            setError(await post('/api/board/merge', { project: row.repo!.project, iid: row.mr!.iid }))
-                          })}
-                        >Merge</Button>
-                      )}
-                      {row.stagingJob && row.mr && row.repo && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          disabled={!board.canWrite || !row.stagingJob.playable}
-                          title={!row.stagingJob.playable ? 'Pipeline not green or job not manual' : ''}
-                          className="h-6 px-2 text-xs"
-                          onClick={() => confirm(`Play deploy:staging for ${row.key}`, async () => {
-                            setError(await post('/api/board/deploy-staging', { project: row.repo!.project, sha: row.mr!.sha }))
-                          })}
-                        >Deploy staging</Button>
-                      )}
-                      {row.repo && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!board.canWrite}
-                          className="h-6 px-2 text-xs"
-                          onClick={() => {
-                            const name = prompt('New production tag (on main):', row.suggestedTag ?? 'v0.1.0')
-                            if (!name) return
-                            confirm(`Create tag ${name} on main`, async () => {
-                              setError(await post('/api/board/tag', { project: row.repo!.project, name }))
-                            })
-                          }}
-                        >Cut tag</Button>
-                      )}
-                      {row.envs.filter((e) => e.onThisTicket && e.logGroup).map((e) => (
-                        <Button key={e.name} size="sm" variant="ghost" className="h-6 px-2 text-xs"
-                          onClick={() => setTailGroup(e.logGroup!)}>logs: {e.name}</Button>
-                      ))}
-                    </div>
-                  </Card>
+                    <div className="truncate text-foreground/90" title={row.summary}>{row.summary}</div>
+                    <FlowPills row={row} />
+                    {(row.mr || row.repo || row.envs.some((e) => e.onThisTicket && e.logGroup)) && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {row.mr && (
+                          <Button
+                            size="sm"
+                            disabled={!board.canWrite || !row.readyToMerge}
+                            title={!board.canWrite ? 'Needs api-scoped token' : !row.readyToMerge ? 'Not ready (approvals/pipeline/conflicts)' : ''}
+                            className="h-5 px-1.5 text-[10px]"
+                            onClick={() => confirm(`Merge MR !${row.mr!.iid} into main`, async () => {
+                              setError(await post('/api/board/merge', { project: row.repo!.project, iid: row.mr!.iid }))
+                            })}
+                          >Merge</Button>
+                        )}
+                        {row.stagingJob && row.mr && row.repo && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={!board.canWrite || !row.stagingJob.playable}
+                            title={!row.stagingJob.playable ? 'Pipeline not green or job not manual' : ''}
+                            className="h-5 px-1.5 text-[10px]"
+                            onClick={() => confirm(`Play deploy:staging for ${row.key}`, async () => {
+                              setError(await post('/api/board/deploy-staging', { project: row.repo!.project, sha: row.mr!.sha }))
+                            })}
+                          >Staging</Button>
+                        )}
+                        {row.repo && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!board.canWrite}
+                            className="h-5 px-1.5 text-[10px]"
+                            onClick={() => {
+                              const name = prompt('New production tag (on main):', row.suggestedTag ?? 'v0.1.0')
+                              if (!name) return
+                              confirm(`Create tag ${name} on main`, async () => {
+                                setError(await post('/api/board/tag', { project: row.repo!.project, name }))
+                              })
+                            }}
+                          >Tag</Button>
+                        )}
+                        {row.envs.filter((e) => e.onThisTicket && e.logGroup).map((e) => (
+                          <Button key={e.name} size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]"
+                            onClick={() => setTailGroup(e.logGroup!)}>log:{ENV_SHORT[e.name] ?? e.name}</Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             ))}
@@ -116,14 +149,14 @@ export function BoardPanel() {
 
           {pending && (
             <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
-              <Card className="gap-3 rounded-none border-border bg-card p-4 text-sm">
+              <div className={cn('space-y-3 rounded-none border border-border bg-card p-4 text-sm')}>
                 <p className="font-mono">{pending.label}?</p>
                 <div className="flex justify-end gap-2">
                   <Button size="sm" variant="outline" onClick={() => setPending(null)}>Cancel</Button>
                   <Button size="sm"
                     onClick={async () => { const p = pending; setPending(null); setError(null); await p.run() }}>Confirm</Button>
                 </div>
-              </Card>
+              </div>
             </div>
           )}
         </div>

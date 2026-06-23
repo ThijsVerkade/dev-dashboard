@@ -69,3 +69,55 @@ export async function getActiveSprint(): Promise<Result<Issue[]>> {
 export async function getRecent(): Promise<Result<Issue[]>> {
   return search(buildJql('updated >= -7d', dashboardConfig.jiraProjects))
 }
+
+export type JiraUser = { accountId: string; displayName: string }
+
+function basicAuth(cfg: { email: string; token: string }): string {
+  return 'Basic ' + Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64')
+}
+
+/** Users assignable to a given issue (sprint team scope, capped at 50). */
+export async function getAssignableUsers(issueKey: string): Promise<Result<JiraUser[]>> {
+  const cfg = env.jira()
+  if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
+  try {
+    const url = `${cfg.host}/rest/api/3/user/assignable/search?issueKey=${encodeURIComponent(issueKey)}&maxResults=50`
+    const res = await fetch(url, {
+      headers: { Authorization: basicAuth(cfg), Accept: 'application/json' },
+    })
+    if (!res.ok) return failure(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    const json = await res.json()
+    return ok(
+      (Array.isArray(json) ? json : [])
+        .filter((u: any) => u.accountId)
+        .map((u: any) => ({ accountId: u.accountId, displayName: u.displayName ?? u.accountId })),
+    )
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'Jira request failed')
+  }
+}
+
+/** Reassign an issue. Pass accountId null to unassign. */
+export async function assignIssue(issueKey: string, accountId: string | null): Promise<Result<{ key: string }>> {
+  const cfg = env.jira()
+  if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
+  try {
+    const res = await fetch(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}/assignee`, {
+      method: 'PUT',
+      headers: {
+        Authorization: basicAuth(cfg),
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ accountId }),
+    })
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 200)
+      const hint = res.status === 403 ? ' (token lacks Jira write permission)' : ''
+      return failure(`Jira ${res.status}${hint}: ${detail}`)
+    }
+    return ok({ key: issueKey })
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'Jira request failed')
+  }
+}
