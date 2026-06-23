@@ -5,13 +5,17 @@ import { PanelShell } from '@/components/panel-shell'
 import { LiveTail } from '@/components/live-tail'
 import { AssigneePicker } from '@/components/assignee-picker'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Check, ChevronsUpDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { Board, BoardColumn, BoardRow } from '@/lib/sources/board'
 
 type Pending = { label: string; run: () => Promise<void> } | null
@@ -92,7 +96,7 @@ export function BoardPanel() {
   const [pending, setPending] = useState<Pending>(null)
   const [tailGroup, setTailGroup] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState('ALL')
+  const [selected, setSelected] = useState<string[]>([])
 
   const confirm = (label: string, run: () => Promise<void>) => setPending({ label, run })
 
@@ -101,8 +105,10 @@ export function BoardPanel() {
       {(board) => {
         const stages = groupIntoStages(board.columns)
         const assignees = [...new Set(board.columns.flatMap((c) => c.rows.map((r) => r.assignee)))].sort()
-        const who = filter === 'ALL' ? null : filter
-        const total = Object.values(stages).reduce((n, rows) => n + (who ? rows.filter((r) => r.assignee === who).length : rows.length), 0)
+        const match = (rows: BoardRow[]) => (selected.length === 0 ? rows : rows.filter((r) => selected.includes(r.assignee)))
+        const total = Object.values(stages).reduce((n, rows) => n + match(rows).length, 0)
+        const triggerLabel = selected.length === 0 ? 'All assignees' : selected.length === 1 ? selected[0] : `${selected.length} assignees`
+        const toggle = (a: string) => setSelected((cur) => (cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a]))
         return (
           <div className="space-y-3">
             {!board.canWrite && (
@@ -112,28 +118,41 @@ export function BoardPanel() {
 
             <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
               <span className="text-muted-foreground">filter assignee:</span>
-              <Select value={filter} onValueChange={setFilter}>
-                <SelectTrigger size="sm" className="h-7 w-56 font-mono text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="font-mono text-xs">
-                  <SelectItem value="ALL">All assignees</SelectItem>
-                  {assignees.map((a) => (
-                    <SelectItem key={a} value={a}>{a}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {who && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 w-56 justify-between font-mono text-xs">
+                    <span className="truncate">{triggerLabel}</span>
+                    <ChevronsUpDown className="size-3.5 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 p-0 font-mono">
+                  <Command>
+                    <CommandInput placeholder="search assignee…" className="text-xs" />
+                    <CommandList>
+                      <CommandEmpty>No assignee.</CommandEmpty>
+                      <CommandGroup>
+                        {assignees.map((a) => (
+                          <CommandItem key={a} value={a} onSelect={() => toggle(a)} className="text-xs">
+                            <Check className={cn('size-3.5', selected.includes(a) ? 'opacity-100' : 'opacity-0')} />
+                            <span className="truncate">{a}</span>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {selected.length > 0 && (
                 <>
                   <span className="text-muted-foreground tabular-nums">{total} ticket{total === 1 ? '' : 's'}</span>
-                  <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setFilter('ALL')}>clear</Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setSelected([])}>clear</Button>
                 </>
               )}
             </div>
 
             <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
               {STAGES.map((stage) => {
-                const rows = who ? stages[stage.id].filter((r) => r.assignee === who) : stages[stage.id]
+                const rows = match(stages[stage.id])
                 return (
                   <div key={stage.id} className="flex min-w-0 flex-col rounded-none border border-border bg-card/40">
                     <h3 className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-2 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
