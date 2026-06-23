@@ -31,6 +31,40 @@ A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Cod
 - Status lists auto-poll (~30–60s); opened logs/traces stream via Server-Sent Events.
 - **Read-only:** the dashboard never triggers, cancels, or mutates anything upstream.
 
+## Release Flow board
+
+The **Release Flow board** shows active-sprint tickets alongside their MR status, environment deployments, and write actions (merge, deploy to staging, tag for production).
+
+### GitLab token scope
+
+`GITLAB_TOKEN` needs the **`api`** scope to perform write actions (merge an MR, play the staging job, create a tag). Using `read_api` still shows the board but all action buttons are disabled — useful if you want a read-only view.
+
+### Modelled flow
+
+```
+feature branch → MR → merge to main   (dev / acc auto-deploy)
+                                ↓
+                   play deploy:staging  (staging)
+                                ↓
+                          tag main      (production)
+```
+
+### Configuration
+
+| Setting | Purpose |
+|---|---|
+| `GITLAB_STAGING_JOB` env var | Override the manual staging job name (default: `deploy:staging`) |
+| `dashboard.config.ts` `cloudwatchLogGroups` | Map `"<project>:<env>"` → CloudWatch log group to enable per-env log tailing from the board |
+
+Example `dashboard.config.ts` snippet:
+
+```ts
+cloudwatchLogGroups: {
+  "group/proj-a:staging": "/ecs/proj-a-staging",
+  "group/proj-a:production": "/ecs/proj-a-production",
+},
+```
+
 ## Notes & known limitations
 
 - The Claude session table's "Project" column shows the `ccusage` agent name (e.g. `claude`), not a repo path — `ccusage` does not expose a project path per session.
