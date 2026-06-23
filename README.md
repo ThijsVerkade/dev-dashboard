@@ -29,7 +29,7 @@ A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Cod
 - All secrets stay server-side: the browser only talks to this app's own API routes (`app/api/*`), which hold the credentials. Nothing leaves your machine.
 - Connectors live in `lib/sources/` (`gitlab.ts`, `cloudwatch.ts`, `claude.ts`), each wrapping a mature library and returning a typed `Result` so panels render configured / not-configured / error states uniformly.
 - Status lists auto-poll (~30–60s); opened logs/traces stream via Server-Sent Events.
-- **Read-only:** the dashboard never triggers, cancels, or mutates anything upstream.
+- **Mostly read-only:** the v1 panels never trigger, cancel, or mutate anything upstream. The one exception is the **Release Flow board** (below), whose merge / deploy-staging / tag actions write to GitLab and require an `api`-scoped token.
 
 ## Release Flow board
 

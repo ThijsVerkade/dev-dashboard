@@ -49,7 +49,7 @@ export function BoardPanel() {
                 {col.rows.map((row) => (
                   <div key={row.key} className="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs space-y-1">
                     <div className="flex justify-between gap-2">
-                      <a href={row.url} target="_blank" className="font-mono">{row.key}</a>
+                      <a href={row.url} target="_blank" rel="noreferrer" className="font-mono">{row.key}</a>
                       <span className="truncate text-gray-500">{row.assignee}</span>
                     </div>
                     <div className="truncate">{row.summary}</div>
@@ -65,7 +65,7 @@ export function BoardPanel() {
                           })}
                         >Merge</button>
                       )}
-                      {row.stagingJob && (
+                      {row.stagingJob && row.mr && row.repo && (
                         <button
                           disabled={!board.canWrite || !row.stagingJob.playable}
                           title={!row.stagingJob.playable ? 'Pipeline not green or job not manual' : ''}
