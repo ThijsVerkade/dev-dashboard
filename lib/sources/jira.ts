@@ -2,6 +2,7 @@ import 'server-only'
 import { env } from '@/lib/env'
 import { dashboardConfig } from '@/dashboard.config'
 import { Result, ok, unconfigured, failure } from '@/lib/result'
+import type { IssueDetail } from '@/lib/agent/prompt'
 
 export type Issue = {
   key: string
@@ -117,6 +118,47 @@ export async function assignIssue(issueKey: string, accountId: string | null): P
       return failure(`Jira ${res.status}${hint}: ${detail}`)
     }
     return ok({ key: issueKey })
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'Jira request failed')
+  }
+}
+
+const BLOCK_ADF = new Set(['paragraph', 'heading', 'blockquote', 'codeBlock', 'listItem'])
+
+function walkAdf(node: any): string {
+  if (node == null) return ''
+  if (typeof node === 'string') return node
+  if (node.type === 'text') return typeof node.text === 'string' ? node.text : ''
+  if (node.type === 'hardBreak') return '\n'
+  const kids = Array.isArray(node.content) ? node.content.map(walkAdf).join('') : ''
+  return BLOCK_ADF.has(node.type) ? kids + '\n' : kids
+}
+
+/** Flatten an Atlassian Document Format node (or plain string) to text. */
+export function flattenAdf(node: unknown): string {
+  if (typeof node === 'string') return node
+  return walkAdf(node).replace(/\n{3,}/g, '\n\n').trim()
+}
+
+/** Full detail for a single issue, including its (flattened) description. */
+export async function getIssueDetail(key: string): Promise<Result<IssueDetail>> {
+  const cfg = env.jira()
+  if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
+  try {
+    const url = `${cfg.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description`
+    const res = await fetch(url, {
+      headers: { Authorization: basicAuth(cfg), Accept: 'application/json' },
+    })
+    if (!res.ok) return failure(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    const json = await res.json()
+    const f = json.fields ?? {}
+    const issueKey = json.key ?? key
+    return ok({
+      key: issueKey,
+      summary: f.summary ?? '',
+      description: flattenAdf(f.description),
+      url: `${cfg.host}/browse/${issueKey}`,
+    })
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'Jira request failed')
   }

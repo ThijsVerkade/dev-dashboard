@@ -1,5 +1,21 @@
 import { expect, test } from 'vitest'
-import { mapIssue, buildJql } from './jira'
+import { mapIssue, buildJql, flattenAdf } from './jira'
+
+test('flattenAdf joins paragraphs with newlines and concatenates text runs', () => {
+  const doc = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [{ type: 'text', text: 'Hello ' }, { type: 'text', text: 'world' }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Line 2' }] },
+    ],
+  }
+  expect(flattenAdf(doc)).toBe('Hello world\nLine 2')
+})
+
+test('flattenAdf passes a plain string through and tolerates null', () => {
+  expect(flattenAdf('plain description')).toBe('plain description')
+  expect(flattenAdf(null)).toBe('')
+})
 
 const fullRaw = {
   key: 'AUC-123',
