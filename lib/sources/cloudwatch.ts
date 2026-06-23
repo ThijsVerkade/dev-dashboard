@@ -29,8 +29,9 @@ function client() {
 
 export async function getLogGroups(): Promise<Result<string[]>> {
   try {
-    if (dashboardConfig.cloudwatchLogGroups.length > 0)
-      return ok(dashboardConfig.cloudwatchLogGroups)
+    const configured = Object.values(dashboardConfig.cloudwatchLogGroups)
+    if (configured.length > 0)
+      return ok(configured)
     const out = await client().send(new DescribeLogGroupsCommand({ limit: 50 }))
     return ok((out.logGroups ?? []).map((g) => g.logGroupName!).filter(Boolean))
   } catch (e) {
