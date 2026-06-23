@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { usePoll } from '@/lib/use-poll'
 import { PanelShell } from '@/components/panel-shell'
 import { LiveTail } from '@/components/live-tail'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import type { Board, BoardRow } from '@/lib/sources/board'
 
 type Pending = { label: string; run: () => Promise<void> } | null
@@ -39,46 +41,51 @@ export function BoardPanel() {
       {(board) => (
         <div className="space-y-4">
           {!board.canWrite && (
-            <p className="text-xs text-amber-600">Read-only GitLab token — actions disabled. Use an `api`-scoped token to enable merge/deploy/tag.</p>
+            <p className="font-mono text-xs text-amber-500">[ ---- ] read-only GitLab token — actions disabled. Use an `api`-scoped token to enable merge/deploy/tag.</p>
           )}
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p className="font-mono text-xs text-destructive">[ FAIL ] {error}</p>}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {board.columns.map((col) => (
               <div key={col.status} className="space-y-2">
-                <h3 className="text-sm font-semibold">{col.status} <span className="text-gray-400">({col.rows.length})</span></h3>
+                <h3 className="font-mono text-sm font-semibold">{col.status} <span className="text-muted-foreground">({col.rows.length})</span></h3>
                 {col.rows.map((row) => (
-                  <div key={row.key} className="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs space-y-1">
+                  <Card key={row.key} className="gap-1 rounded-none border-border p-2 text-xs">
                     <div className="flex justify-between gap-2">
-                      <a href={row.url} target="_blank" rel="noreferrer" className="font-mono">{row.key}</a>
-                      <span className="truncate text-gray-500">{row.assignee}</span>
+                      <a href={row.url} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{row.key}</a>
+                      <span className="truncate text-muted-foreground">{row.assignee}</span>
                     </div>
                     <div className="truncate">{row.summary}</div>
-                    <div className="font-mono text-[11px] text-gray-500">{flowStrip(row)}</div>
+                    <div className="font-mono text-[11px] text-muted-foreground">{flowStrip(row)}</div>
                     <div className="flex flex-wrap gap-1 pt-1">
                       {row.mr && (
-                        <button
+                        <Button
+                          size="sm"
                           disabled={!board.canWrite || !row.readyToMerge}
                           title={!board.canWrite ? 'Needs api-scoped token' : !row.readyToMerge ? 'Not ready (approvals/pipeline/conflicts)' : ''}
-                          className="rounded bg-green-600 px-2 py-0.5 text-white disabled:opacity-40"
+                          className="h-6 px-2 text-xs"
                           onClick={() => confirm(`Merge MR !${row.mr!.iid} into main`, async () => {
                             setError(await post('/api/board/merge', { project: row.repo!.project, iid: row.mr!.iid }))
                           })}
-                        >Merge</button>
+                        >Merge</Button>
                       )}
                       {row.stagingJob && row.mr && row.repo && (
-                        <button
+                        <Button
+                          size="sm"
+                          variant="secondary"
                           disabled={!board.canWrite || !row.stagingJob.playable}
                           title={!row.stagingJob.playable ? 'Pipeline not green or job not manual' : ''}
-                          className="rounded bg-blue-600 px-2 py-0.5 text-white disabled:opacity-40"
+                          className="h-6 px-2 text-xs"
                           onClick={() => confirm(`Play deploy:staging for ${row.key}`, async () => {
                             setError(await post('/api/board/deploy-staging', { project: row.repo!.project, sha: row.mr!.sha }))
                           })}
-                        >Deploy staging</button>
+                        >Deploy staging</Button>
                       )}
                       {row.repo && (
-                        <button
+                        <Button
+                          size="sm"
+                          variant="outline"
                           disabled={!board.canWrite}
-                          className="rounded bg-purple-600 px-2 py-0.5 text-white disabled:opacity-40"
+                          className="h-6 px-2 text-xs"
                           onClick={() => {
                             const name = prompt('New production tag (on main):', row.suggestedTag ?? 'v0.1.0')
                             if (!name) return
@@ -86,14 +93,14 @@ export function BoardPanel() {
                               setError(await post('/api/board/tag', { project: row.repo!.project, name }))
                             })
                           }}
-                        >Cut tag</button>
+                        >Cut tag</Button>
                       )}
                       {row.envs.filter((e) => e.onThisTicket && e.logGroup).map((e) => (
-                        <button key={e.name} className="rounded border px-2 py-0.5"
-                          onClick={() => setTailGroup(e.logGroup!)}>logs: {e.name}</button>
+                        <Button key={e.name} size="sm" variant="ghost" className="h-6 px-2 text-xs"
+                          onClick={() => setTailGroup(e.logGroup!)}>logs: {e.name}</Button>
                       ))}
                     </div>
-                  </div>
+                  </Card>
                 ))}
               </div>
             ))}
@@ -101,22 +108,22 @@ export function BoardPanel() {
 
           {tailGroup && (
             <div className="space-y-1">
-              <div className="flex justify-between text-xs"><span className="font-mono">{tailGroup}</span>
-                <button onClick={() => setTailGroup(null)}>close</button></div>
+              <div className="flex justify-between font-mono text-xs"><span>{tailGroup}</span>
+                <button className="text-muted-foreground hover:text-foreground" onClick={() => setTailGroup(null)}>close</button></div>
               <LiveTail src={`/api/cloudwatch/tail?group=${encodeURIComponent(tailGroup)}`} />
             </div>
           )}
 
           {pending && (
-            <div className="fixed inset-0 flex items-center justify-center bg-black/40">
-              <div className="space-y-3 rounded bg-white p-4 text-sm dark:bg-gray-900">
-                <p>{pending.label}?</p>
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
+              <Card className="gap-3 rounded-none border-border bg-card p-4 text-sm">
+                <p className="font-mono">{pending.label}?</p>
                 <div className="flex justify-end gap-2">
-                  <button className="rounded border px-3 py-1" onClick={() => setPending(null)}>Cancel</button>
-                  <button className="rounded bg-blue-600 px-3 py-1 text-white"
-                    onClick={async () => { const p = pending; setPending(null); setError(null); await p.run() }}>Confirm</button>
+                  <Button size="sm" variant="outline" onClick={() => setPending(null)}>Cancel</Button>
+                  <Button size="sm"
+                    onClick={async () => { const p = pending; setPending(null); setError(null); await p.run() }}>Confirm</Button>
                 </div>
-              </div>
+              </Card>
             </div>
           )}
         </div>

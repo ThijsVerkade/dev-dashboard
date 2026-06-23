@@ -4,6 +4,15 @@ import { usePoll } from '@/lib/use-poll'
 import { PanelShell } from './panel-shell'
 import { StatusBadge } from './status-badge'
 import { LiveTail } from './live-tail'
+import { Button } from '@/components/ui/button'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import type { Pipeline, Job } from '@/lib/sources/gitlab'
 
 export function PipelinesPanel() {
@@ -26,28 +35,66 @@ export function PipelinesPanel() {
   return (
     <PanelShell title="GitLab Pipelines" result={data} loading={loading}>
       {(pipelines) => (
-        <div className="space-y-2">
-          {pipelines.map((p) => (
-            <div key={`${p.project}-${p.id}`} className="flex items-center gap-2 text-sm">
-              <StatusBadge status={p.status} />
-              <button className="underline" onClick={() => loadJobs(p)}>
-                {p.project} #{p.id} ({p.ref})
-              </button>
-            </div>
-          ))}
-          {jobs && (
-            <div className="mt-3 space-y-1 border-t pt-2 text-sm">
-              {jobs.map((j) => (
-                <div key={j.id} className="flex items-center gap-2">
-                  <StatusBadge status={j.status} />
-                  <button className="underline"
-                    onClick={() => setOpenJob({ project: selectedProject, jobId: j.id })}>
-                    {j.stage} / {j.name}
-                  </button>
-                </div>
+        <div className="space-y-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[88px]">status</TableHead>
+                <TableHead>pipeline</TableHead>
+                <TableHead className="text-right">ref</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pipelines.map((p) => (
+                <TableRow key={`${p.project}-${p.id}`}>
+                  <TableCell><StatusBadge status={p.status} /></TableCell>
+                  <TableCell>
+                    <Button
+                      variant="link"
+                      className="h-auto p-0 font-mono text-foreground"
+                      onClick={() => loadJobs(p)}
+                    >
+                      {p.project} #<span className="tabular-nums">{p.id}</span>
+                    </Button>
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-muted-foreground">{p.ref}</TableCell>
+                </TableRow>
               ))}
+            </TableBody>
+          </Table>
+
+          {jobs && (
+            <div className="space-y-2 border-t border-border pt-3">
+              <div className="font-mono text-xs text-muted-foreground">
+                jobs · {selectedProject}
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[88px]">status</TableHead>
+                    <TableHead>stage / job</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {jobs.map((j) => (
+                    <TableRow key={j.id}>
+                      <TableCell><StatusBadge status={j.status} /></TableCell>
+                      <TableCell>
+                        <Button
+                          variant="link"
+                          className="h-auto p-0 font-mono text-foreground"
+                          onClick={() => setOpenJob({ project: selectedProject, jobId: j.id })}
+                        >
+                          {j.stage} / {j.name}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
+
           {openJob && (
             <LiveTail
               src={`/api/gitlab/jobs/${openJob.jobId}/trace?project=${encodeURIComponent(openJob.project)}`}
