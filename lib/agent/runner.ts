@@ -19,7 +19,7 @@ import { projectKeyOf, slugify, buildAgentPrompt } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
 import { Result, ok, failure } from '@/lib/result'
 
-export type JobStatus = 'running' | 'done' | 'failed'
+export type JobStatus = 'running' | 'done' | 'failed' | 'canceled'
 export type JobMeta = {
   id: string
   key: string
@@ -150,6 +150,26 @@ export function listJobs(): JobMeta[] {
     .filter((m): m is JobMeta => !!m)
     .map(reconcile)
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+}
+
+/** Terminate a running job's process (group), and mark it canceled. */
+export function cancelJob(id: string): Result<{ id: string }> {
+  const meta = readMeta(id)
+  if (!meta) return failure('job not found')
+  if (meta.status === 'running' && meta.pid) {
+    try {
+      process.kill(-meta.pid, 'SIGTERM') // detached child is its own group leader
+    } catch {
+      try {
+        process.kill(meta.pid, 'SIGTERM')
+      } catch {
+        // already gone
+      }
+    }
+  }
+  meta.status = 'canceled'
+  writeMeta(meta)
+  return ok({ id })
 }
 
 export function getJob(id: string): JobDetail | null {

@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePoll } from '@/lib/use-poll'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,21 @@ const STATUS_CLASS: Record<JobMeta['status'], string> = {
   running: 'text-primary border-primary/40 animate-pulse',
   done: 'text-primary border-primary/40',
   failed: 'text-destructive border-destructive/40',
+  canceled: 'text-muted-foreground border-border',
+}
+
+function elapsed(fromIso: string, toIso?: string): string {
+  const from = new Date(fromIso).getTime()
+  const to = toIso ? new Date(toIso).getTime() : Date.now()
+  const s = Math.max(0, Math.round((to - from) / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+async function postJson(url: string): Promise<{ ok: boolean; data?: any; message?: string }> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+  return res.json()
 }
 
 function StatusPill({ status }: { status: JobMeta['status'] }) {
@@ -36,10 +51,44 @@ const KIND_CLASS: Record<string, string> = {
   tool_result: 'text-muted-foreground',
 }
 
-function JobView({ id }: { id: string }) {
+function JobView({ id, onSelect }: { id: string; onSelect: (id: string) => void }) {
   const job = usePoll<JobDetail>(`/api/agent/jobs/${id}`, 3000)
+  const [busy, setBusy] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const count = job.data?.ok ? job.data.data.events.length : 0
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [count])
+
   if (!job.data?.ok) return null
   const { meta, events, mrUrl } = job.data.data
+  const running = meta.status === 'running'
+
+  async function cancel() {
+    setBusy(true)
+    try {
+      await postJson(`/api/agent/jobs/${id}/cancel`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function retry() {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/agent/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: meta.key }),
+      })
+      const json = await res.json()
+      if (json.ok) onSelect(json.data.id)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card className="gap-0">
       <CardHeader className="border-b border-border [.border-b]:pb-4">
@@ -47,36 +96,72 @@ function JobView({ id }: { id: string }) {
           <span className="text-muted-foreground">$ </span>
           <span>{meta.key}</span>
           <span className="text-muted-foreground">{meta.repo}</span>
-          <span className="text-muted-foreground">{meta.branch}</span>
-          <span className="ml-auto">
+          <span className="text-muted-foreground">
+            {meta.baseBranch} ← {meta.branch}
+          </span>
+          <span className="ml-auto flex items-center gap-2">
+            {running ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={cancel}
+                className="h-6 rounded-none px-2 text-[11px]"
+              >
+                Cancel
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={retry}
+                className="h-6 rounded-none px-2 text-[11px]"
+              >
+                Retry
+              </Button>
+            )}
             <StatusPill status={meta.status} />
           </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 pt-4">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
+          <span>started {timeOf(meta.startedAt)}</span>
+          {running && <span>elapsed {elapsed(meta.startedAt)}</span>}
+          <span>{events.length} events</span>
+        </div>
         {mrUrl && (
           <a
             href={mrUrl}
             target="_blank"
             rel="noreferrer"
-            className="font-mono text-xs text-primary underline underline-offset-2"
+            className="block font-mono text-xs text-primary underline underline-offset-2"
           >
             → {mrUrl}
           </a>
         )}
-        <div className="h-80 space-y-0.5 overflow-y-auto rounded-none border border-border bg-muted/20 p-3">
+        <div
+          ref={scrollRef}
+          className="h-80 space-y-0.5 overflow-y-auto rounded-none border border-border bg-muted/20 p-3"
+        >
           {events.length === 0 ? (
             <p className="font-mono text-xs text-muted-foreground">waiting for output…</p>
           ) : (
-            events.map((e, i) => (
-              <div key={`${e.ts}-${i}`} className="flex gap-2 font-mono text-xs leading-relaxed">
-                <span className="shrink-0 tabular-nums text-muted-foreground/60">{timeOf(e.ts)}</span>
-                <span className={cn('w-3 shrink-0 text-center', KIND_CLASS[e.kind])}>
-                  {e.kind === 'tool_use' ? '$' : e.kind === 'tool_result' ? '⮑' : ''}
-                </span>
-                <span className={cn('min-w-0 break-words', KIND_CLASS[e.kind])}>{e.label}</span>
-              </div>
-            ))
+            events.map((e, i) => {
+              const isPrompt = e.kind === 'text' && e.role === 'user'
+              return (
+                <div key={`${e.ts}-${i}`} className="flex gap-2 font-mono text-xs leading-relaxed">
+                  <span className="shrink-0 tabular-nums text-muted-foreground/60">{timeOf(e.ts)}</span>
+                  <span className={cn('w-3 shrink-0 text-center', isPrompt ? 'text-amber-500' : KIND_CLASS[e.kind])}>
+                    {isPrompt ? '›' : e.kind === 'tool_use' ? '$' : e.kind === 'tool_result' ? '⮑' : ''}
+                  </span>
+                  <span className={cn('min-w-0 break-words', isPrompt ? 'text-amber-500' : KIND_CLASS[e.kind])}>
+                    {e.label}
+                  </span>
+                </div>
+              )
+            })
           )}
         </div>
       </CardContent>
@@ -179,7 +264,7 @@ export function AgentsPanel() {
         </CardContent>
       </Card>
 
-      {selected && <JobView id={selected} />}
+      {selected && <JobView id={selected} onSelect={setSelected} />}
     </div>
   )
 }
