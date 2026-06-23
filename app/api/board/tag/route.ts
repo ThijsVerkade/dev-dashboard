@@ -5,7 +5,9 @@ import { failure } from '@/lib/result'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const { project, name } = await req.json()
+  let body: { project?: string; name?: string }
+  try { body = await req.json() } catch { return NextResponse.json(failure('Invalid JSON body')) }
+  const { project, name } = body ?? {}
   if (!project || !name) return NextResponse.json(failure('project and name are required'))
 
   const tags = await getTags(project)

@@ -6,7 +6,9 @@ import { failure } from '@/lib/result'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const { project, iid } = await req.json()
+  let body: { project?: string; iid?: number }
+  try { body = await req.json() } catch { return NextResponse.json(failure('Invalid JSON body')) }
+  const { project, iid } = body ?? {}
   if (!project || typeof iid !== 'number') return NextResponse.json(failure('project and iid are required'))
 
   const mrs = await getMergeRequests(project)
@@ -17,7 +19,8 @@ export async function POST(req: NextRequest) {
   const approvals = await getMrApprovals(project, iid)
   if (!approvals.ok) return NextResponse.json(approvals)
   const pipelines = await getPipelines()
-  const pl = pipelines.ok ? pipelineForSha(mr.sha, pipelines.data) : undefined
+  if (!pipelines.ok) return NextResponse.json(pipelines)
+  const pl = pipelineForSha(mr.sha, pipelines.data)
 
   if (!computeReadyToMerge(mr, approvals.data, pl?.status))
     return NextResponse.json(failure('MR is not ready to merge (approvals, pipeline, or conflicts)'))

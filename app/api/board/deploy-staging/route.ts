@@ -7,11 +7,14 @@ import { failure } from '@/lib/result'
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
-  const { project, sha } = await req.json()
+  let body: { project?: string; sha?: string }
+  try { body = await req.json() } catch { return NextResponse.json(failure('Invalid JSON body')) }
+  const { project, sha } = body ?? {}
   if (!project || !sha) return NextResponse.json(failure('project and sha are required'))
 
   const pipelines = await getPipelines()
-  const pl = pipelines.ok ? pipelineForSha(sha, pipelines.data) : undefined
+  if (!pipelines.ok) return NextResponse.json(pipelines)
+  const pl = pipelineForSha(sha, pipelines.data)
   if (!pl) return NextResponse.json(failure('No pipeline found for that commit'))
 
   const jobs = await getJobs(project, pl.id)
