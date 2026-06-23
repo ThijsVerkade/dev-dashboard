@@ -460,6 +460,14 @@ import { getJobTrace } from '@/lib/sources/gitlab'
 
 export const dynamic = 'force-dynamic'
 
+// GitLab traces contain ANSI colour codes and bare carriage returns (progress
+// redraws). Strip the escapes and treat \r as a line break so the <pre> renders
+// clean lines instead of literal escape sequences and overwritten garbage.
+const ANSI = /\x1b\[[0-9;?]*[a-zA-Z]/g
+function toLines(text: string): string[] {
+  return text.replace(ANSI, '').split(/\r\n|\r|\n/)
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ jobId: string }> },
@@ -473,21 +481,30 @@ export async function GET(
       let lastLength = 0
       let stop = false
       req.signal.addEventListener('abort', () => { stop = true })
-      const send = (event: string, data: string) =>
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
+      // Guard every send: after a client abort the controller is cancelled and
+      // enqueue() throws. Checking `stop` and try/catch prevents an unhandled
+      // rejection on the trailing 'done'.
+      const send = (event: string, data: string) => {
+        if (stop) return
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
+        } catch { stop = true }
+      }
 
       for (let i = 0; i < 600 && !stop; i++) {
         const r = await getJobTrace(project, Number(jobId))
         if (!r.ok) { send('error', JSON.stringify(r)); break }
         if (r.data.length > lastLength) {
+          // GitLab has no incremental trace endpoint, so we re-fetch the whole
+          // trace each tick but only emit the newly-appended slice.
           const chunk = r.data.slice(lastLength)
           lastLength = r.data.length
-          for (const line of chunk.split('\n')) send('line', JSON.stringify(line))
+          for (const line of toLines(chunk)) send('line', JSON.stringify(line))
         }
         await new Promise((res) => setTimeout(res, 2000))
       }
       send('done', '"end"')
-      controller.close()
+      try { controller.close() } catch { /* already closed by client abort */ }
     },
   })
 
@@ -526,9 +543,9 @@ git add -A && git commit -m "feat: add GitLab route handlers with SSE trace tail
 **Interfaces:**
 - Consumes: `Result`, helpers from `@/lib/result`; `env` from `@/lib/env`; `dashboardConfig`.
 - Produces:
-  - `type LogEvent = { timestamp: number; message: string }`
+  - `type LogEvent = { id: string; timestamp: number; message: string }` (`id` is the CloudWatch `eventId`, used for dedupe)
   - `getLogGroups(): Promise<Result<string[]>>`
-  - `getEvents(logGroup: string, startTime: number): Promise<Result<{ events: LogEvent[]; nextStart: number }>>`
+  - `getEvents(logGroup: string, startTime: number): Promise<Result<LogEvent[]>>` (returns events for the window; the route handles overlap + dedupe)
   - `mapEvent(raw): LogEvent` (exported for testing)
   - `isMissingCreds(err: unknown): boolean` (exported for testing)
 
@@ -544,8 +561,8 @@ import { expect, test } from 'vitest'
 import { mapEvent, isMissingCreds } from './cloudwatch'
 
 test('mapEvent maps raw CloudWatch event', () => {
-  expect(mapEvent({ timestamp: 1718000000000, message: 'hello\n' })).toEqual({
-    timestamp: 1718000000000, message: 'hello',
+  expect(mapEvent({ eventId: 'e1', timestamp: 1718000000000, message: 'hello\n' })).toEqual({
+    id: 'e1', timestamp: 1718000000000, message: 'hello',
   })
 })
 
@@ -573,10 +590,14 @@ import { env } from '@/lib/env'
 import { dashboardConfig } from '@/dashboard.config'
 import { Result, ok, unconfigured, failure } from '@/lib/result'
 
-export type LogEvent = { timestamp: number; message: string }
+export type LogEvent = { id: string; timestamp: number; message: string }
 
-export function mapEvent(raw: { timestamp?: number; message?: string }): LogEvent {
-  return { timestamp: raw.timestamp ?? 0, message: (raw.message ?? '').replace(/\n+$/, '') }
+export function mapEvent(raw: { eventId?: string; timestamp?: number; message?: string }): LogEvent {
+  return {
+    id: raw.eventId ?? '',
+    timestamp: raw.timestamp ?? 0,
+    message: (raw.message ?? '').replace(/\n+$/, ''),
+  }
 }
 
 export function isMissingCreds(err: unknown): boolean {
@@ -604,16 +625,12 @@ export async function getLogGroups(): Promise<Result<string[]>> {
 export async function getEvents(
   logGroup: string,
   startTime: number,
-): Promise<Result<{ events: LogEvent[]; nextStart: number }>> {
+): Promise<Result<LogEvent[]>> {
   try {
     const out = await client().send(
       new FilterLogEventsCommand({ logGroupName: logGroup, startTime, limit: 200 }),
     )
-    const events = (out.events ?? []).map(mapEvent)
-    const nextStart = events.length > 0
-      ? Math.max(...events.map((e) => e.timestamp)) + 1
-      : startTime
-    return ok({ events, nextStart })
+    return ok((out.events ?? []).map(mapEvent))
   } catch (e) {
     if (isMissingCreds(e))
       return unconfigured('AWS credentials not found. Configure ~/.aws or AWS_PROFILE/AWS_REGION.')
@@ -673,23 +690,37 @@ export async function GET(req: NextRequest) {
   const group = req.nextUrl.searchParams.get('group') ?? ''
   const encoder = new TextEncoder()
 
+  const OVERLAP = 30_000 // re-query 30s back each tick so late-ingested events aren't skipped
   const stream = new ReadableStream({
     async start(controller) {
       let start = Date.now() - 5 * 60 * 1000 // last 5 minutes
       let stop = false
+      const seen = new Set<string>() // dedupe by eventId across the overlapping windows
       req.signal.addEventListener('abort', () => { stop = true })
-      const send = (event: string, data: string) =>
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
+      const send = (event: string, data: string) => {
+        if (stop) return
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`))
+        } catch { stop = true }
+      }
 
       for (let i = 0; i < 600 && !stop; i++) {
         const r = await getEvents(group, start)
         if (!r.ok) { send('error', JSON.stringify(r)); break }
-        for (const ev of r.data.events) send('event', JSON.stringify(ev))
-        start = r.data.nextStart
+        let maxTs = start
+        for (const ev of r.data) {
+          if (ev.id && seen.has(ev.id)) continue
+          if (ev.id) seen.add(ev.id)
+          send('event', JSON.stringify(ev))
+          if (ev.timestamp > maxTs) maxTs = ev.timestamp
+        }
+        // Advance the cursor but stay OVERLAP behind newest; dedupe drops re-seen events.
+        start = Math.max(start, maxTs - OVERLAP)
+        if (seen.size > 5000) seen.clear() // bound memory on long-lived tails
         await new Promise((res) => setTimeout(res, 3000))
       }
       send('done', '"end"')
-      controller.close()
+      try { controller.close() } catch { /* already closed by client abort */ }
     },
   })
 
@@ -737,6 +768,11 @@ git add -A && git commit -m "feat: add CloudWatch route handlers with SSE tail"
 
   Note on ccusage JSON: `ccusage daily --json` returns roughly `{ daily: [{ date, totalTokens, totalCost, ... }], totals: { totalTokens, totalCost } }`; `ccusage session --json` returns `{ sessions: [{ sessionId, project, totalTokens, totalCost, lastActivity }], ... }`. Parsers MUST read defensively (fall back to 0 / '') because exact field names may vary by ccusage version — this is the documented `ccusage` risk from the spec. Step 5 validates the real shape.
 
+- [ ] **Step 0: Install ccusage as a dependency**
+
+Run: `npm install ccusage@20`
+(So we invoke the local binary instead of spawning `npx --yes` on every poll.)
+
 - [ ] **Step 1: Write failing tests for the pure parsers**
 
 Create `lib/sources/claude.test.ts`:
@@ -783,6 +819,7 @@ Expected: FAIL — cannot find module './claude'.
 import 'server-only'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { join } from 'node:path'
 import { Result, ok, failure } from '@/lib/result'
 
 const run = promisify(execFile)
@@ -824,11 +861,22 @@ export function parseSessions(json: unknown): ClaudeSession[] {
   }))
 }
 
+// Resolve the locally-installed ccusage binary; spawning `npx --yes` on every
+// poll (2x/min) would re-resolve the package each time.
+const CCUSAGE_BIN = join(process.cwd(), 'node_modules', '.bin', 'ccusage')
+const cache = new Map<string, { value: unknown; expires: number }>()
+const TTL_MS = 60_000
+
 async function ccusage(subcommand: string): Promise<unknown> {
-  const { stdout } = await run('npx', ['--yes', 'ccusage@20', subcommand, '--json'], {
+  const now = Date.now()
+  const hit = cache.get(subcommand)
+  if (hit && hit.expires > now) return hit.value
+  const { stdout } = await run(CCUSAGE_BIN, [subcommand, '--json'], {
     maxBuffer: 32 * 1024 * 1024,
   })
-  return JSON.parse(stdout)
+  const value = JSON.parse(stdout)
+  cache.set(subcommand, { value, expires: now + TTL_MS })
+  return value
 }
 
 export async function getSummary(): Promise<Result<ClaudeSummary>> {
@@ -1026,7 +1074,14 @@ export function LiveTail({ src }: { src: string }) {
       const ev = JSON.parse((e as MessageEvent).data)
       push(`${new Date(ev.timestamp).toISOString()}  ${ev.message}`)
     })
-    es.addEventListener('error', (e) => push(`[stream error] ${(e as MessageEvent).data ?? ''}`))
+    // The server's named `error` event carries .data. The NATIVE EventSource
+    // error (connection drop) has no .data and would auto-reconnect — which
+    // restarts the server's polling loop from scratch. Close on it instead.
+    es.addEventListener('error', (e) => {
+      const data = (e as MessageEvent).data
+      if (data) push(`[stream error] ${data}`)
+      else { push('[disconnected]'); es.close() }
+    })
     es.addEventListener('done', () => es.close())
     return () => es.close()
   }, [src])
