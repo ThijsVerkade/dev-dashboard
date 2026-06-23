@@ -26,8 +26,8 @@ export function ClaudePanel() {
                 <th>Project</th><th>Last activity</th><th className="text-right">Tokens</th><th className="text-right">Cost</th>
               </tr></thead>
               <tbody>
-                {sessions.data.data.slice(0, 15).map((row) => (
-                  <tr key={row.sessionId} className="border-t">
+                {sessions.data.data.slice(0, 15).map((row, i) => (
+                  <tr key={`${row.sessionId}-${i}`} className="border-t">
                     <td>{row.project || row.sessionId.slice(0, 8)}</td>
                     <td>{row.lastActivity}</td>
                     <td className="text-right">{row.tokens.toLocaleString()}</td>
