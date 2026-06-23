@@ -7,6 +7,12 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { JobMeta, JobDetail } from '@/lib/agent/runner'
+import {
+  buildTriggerHeaders,
+  loadAgentToken,
+  saveAgentToken,
+  clearAgentToken,
+} from '@/lib/agent-token-client'
 
 const STATUS_CLASS: Record<JobMeta['status'], string> = {
   running: 'text-primary border-primary/40 animate-pulse',
@@ -24,8 +30,8 @@ function elapsed(fromIso: string, toIso?: string): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-async function postJson(url: string): Promise<{ ok: boolean; data?: any; message?: string }> {
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+async function postJson(url: string, token: string | null): Promise<{ ok: boolean; data?: any; message?: string }> {
+  const res = await fetch(url, { method: 'POST', headers: buildTriggerHeaders(token) })
   return res.json()
 }
 
@@ -51,7 +57,7 @@ const KIND_CLASS: Record<string, string> = {
   tool_result: 'text-muted-foreground',
 }
 
-function JobView({ id, onSelect }: { id: string; onSelect: (id: string) => void }) {
+function JobView({ id, token, onSelect }: { id: string; token: string | null; onSelect: (id: string) => void }) {
   const job = usePoll<JobDetail>(`/api/agent/jobs/${id}`, 3000)
   const [busy, setBusy] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -69,7 +75,7 @@ function JobView({ id, onSelect }: { id: string; onSelect: (id: string) => void 
   async function cancel() {
     setBusy(true)
     try {
-      await postJson(`/api/agent/jobs/${id}/cancel`)
+      await postJson(`/api/agent/jobs/${id}/cancel`, token)
     } finally {
       setBusy(false)
     }
@@ -79,7 +85,7 @@ function JobView({ id, onSelect }: { id: string; onSelect: (id: string) => void 
     try {
       const res = await fetch('/api/agent/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildTriggerHeaders(token),
         body: JSON.stringify({ key: meta.key }),
       })
       const json = await res.json()
@@ -174,6 +180,10 @@ export function AgentsPanel() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(null)
+  useEffect(() => {
+    setToken(loadAgentToken())
+  }, [])
   const jobs = usePoll<JobMeta[]>('/api/agent/jobs', 3000)
 
   async function send() {
@@ -184,7 +194,7 @@ export function AgentsPanel() {
     try {
       const res = await fetch('/api/agent/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: buildTriggerHeaders(token),
         body: JSON.stringify({ key: k }),
       })
       const json = await res.json()
@@ -226,6 +236,31 @@ export function AgentsPanel() {
             </Button>
           </div>
           {msg && <p className="font-mono text-xs text-muted-foreground">{msg}</p>}
+          {token ? (
+            <p className="font-mono text-[11px] text-muted-foreground">
+              PIN set ·{' '}
+              <button
+                type="button"
+                onClick={() => { clearAgentToken(); setToken(null) }}
+                className="text-primary underline underline-offset-2"
+              >
+                forget
+              </button>
+            </p>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                placeholder="Trigger PIN (only if AGENT_TRIGGER_TOKEN is set)"
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return
+                  const v = (e.target as HTMLInputElement).value.trim()
+                  if (v) { saveAgentToken(v); setToken(v) }
+                }}
+                className="rounded-none font-mono text-xs"
+              />
+            </div>
+          )}
           <p className="font-mono text-[11px] text-amber-500">
             ⚠ Runs an autonomous agent with bypassed permissions; pushes a branch and opens an MR.
           </p>
@@ -264,7 +299,7 @@ export function AgentsPanel() {
         </CardContent>
       </Card>
 
-      {selected && <JobView id={selected} onSelect={setSelected} />}
+      {selected && <JobView id={selected} token={token} onSelect={setSelected} />}
     </div>
   )
 }
