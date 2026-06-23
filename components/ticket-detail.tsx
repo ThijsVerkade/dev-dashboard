@@ -22,6 +22,8 @@ import { LiveTail } from '@/components/live-tail'
 import type { BoardRow } from '@/lib/sources/board'
 import type { Pipeline, Job } from '@/lib/sources/gitlab'
 
+const shortRef = (r: string) => r.replace('refs/merge-requests/', 'mr!').replace(/\/head$/, '')
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-0.5">
@@ -68,7 +70,7 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
 
   return (
     <Dialog open={!!row} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto font-mono sm:max-w-2xl">
+      <DialogContent className="max-h-[85vh] w-[92vw] overflow-x-hidden overflow-y-auto font-mono sm:max-w-3xl">
         {row && (
           <>
             <DialogHeader>
@@ -118,8 +120,8 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
                       <TableRow key={e.name}>
                         <TableCell className="font-mono">{e.name}</TableCell>
                         <TableCell className="font-mono text-muted-foreground">{e.state}</TableCell>
-                        <TableCell className="font-mono text-muted-foreground">{e.ref} ({e.sha.slice(0, 8)})</TableCell>
-                        <TableCell className="font-mono text-muted-foreground">{e.deployedAt ? new Date(e.deployedAt).toLocaleString() : '—'}</TableCell>
+                        <TableCell className="font-mono text-muted-foreground"><span className="whitespace-nowrap">{shortRef(e.ref)}</span> <span className="text-muted-foreground/60">{e.sha.slice(0, 8)}</span></TableCell>
+                        <TableCell className="whitespace-nowrap font-mono text-muted-foreground">{e.deployedAt ? new Date(e.deployedAt).toLocaleDateString() : '—'}</TableCell>
                         <TableCell className="text-right font-mono">{e.onThisTicket ? <span className="text-primary">✓</span> : '·'}</TableCell>
                       </TableRow>
                     ))}
