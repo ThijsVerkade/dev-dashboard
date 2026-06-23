@@ -214,6 +214,47 @@ export async function getMrApprovals(project: string, iid: number): Promise<Resu
   }
 }
 
+export function isValidNewTag(name: string, existing: Tag[]): { ok: true } | { ok: false; message: string } {
+  if (!name.trim()) return { ok: false, message: 'Tag name is required' }
+  if (!/^v?\d+\.\d+\.\d+([-.][0-9A-Za-z.-]+)?$/.test(name)) return { ok: false, message: `Invalid tag format: ${name}` }
+  if (existing.some((t) => t.name === name)) return { ok: false, message: `Tag ${name} already exists` }
+  return { ok: true }
+}
+
+export async function mergeMr(project: string, iid: number): Promise<Result<true>> {
+  const api = client()
+  if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
+  try {
+    await api.MergeRequests.merge(project, iid)
+    return ok(true)
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'GitLab merge failed')
+  }
+}
+
+export async function playJob(project: string, jobId: number): Promise<Result<true>> {
+  const api = client()
+  if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
+  try {
+    await api.Jobs.play(project, jobId)
+    return ok(true)
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'GitLab job play failed')
+  }
+}
+
+export async function createTag(project: string, name: string, ref: string): Promise<Result<Tag>> {
+  const api = client()
+  const cfg = env.gitlab()
+  if (!api || !cfg) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
+  try {
+    const raw = await api.Tags.create(project, name, ref)
+    return ok(mapTag(raw as any, project, cfg.host))
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'GitLab tag create failed')
+  }
+}
+
 // Probe token scopes; default to false (no writes) on any failure.
 export async function getCanWrite(): Promise<boolean> {
   const cfg = env.gitlab()

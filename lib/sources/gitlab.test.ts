@@ -1,7 +1,8 @@
 import { expect, test } from 'vitest'
-import { mapPipeline, getPipelines, excludeProjects } from './gitlab'
 import {
+  mapPipeline, getPipelines, excludeProjects,
   mapMergeRequest, mapDeployment, mapTag, hasApiScope,
+  isValidNewTag,
 } from './gitlab'
 
 test('mapPipeline maps raw GitLab pipeline to our shape', () => {
@@ -79,4 +80,11 @@ test('mapTag builds a web url under the project tags path', () => {
 test('hasApiScope detects api scope', () => {
   expect(hasApiScope(['read_api', 'api'])).toBe(true)
   expect(hasApiScope(['read_api'])).toBe(false)
+})
+
+test('isValidNewTag rejects blank, bad format, and duplicates', () => {
+  expect(isValidNewTag('v1.2.3', []).ok).toBe(true)
+  expect(isValidNewTag('', []).ok).toBe(false)
+  expect(isValidNewTag('not a tag', []).ok).toBe(false)
+  expect(isValidNewTag('v1.0.0', [{ name: 'v1.0.0', webUrl: '' }]).ok).toBe(false)
 })
