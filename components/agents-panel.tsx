@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { JobMeta, JobDetail } from '@/lib/agent/runner'
+import { AGENT_PROFILES } from '@/lib/agent/profiles'
 import {
   buildTriggerHeaders,
   loadAgentToken,
@@ -19,7 +20,7 @@ const STATUS_CLASS: Record<JobMeta['status'], string> = {
   done: 'text-primary border-primary/40',
   failed: 'text-destructive border-destructive/40',
   canceled: 'text-muted-foreground border-border',
-  blocked: 'text-yellow-600 border-yellow-600/40',
+  blocked: 'text-amber-500 border-amber-500/40',
 }
 
 function elapsed(fromIso: string, toIso?: string): string {
@@ -106,9 +107,11 @@ function JobView({ id, token, onSelect }: { id: string; token: string | null; on
           <span className="text-muted-foreground">$ </span>
           <span>{meta.key}</span>
           <span className="text-muted-foreground">{meta.repo}</span>
-          <span className="text-muted-foreground">
-            {meta.baseBranch} ← {meta.branch}
-          </span>
+          {meta.profile === 'acceptance' ? (
+            <span className="text-muted-foreground">{AGENT_PROFILES.acceptance.label}{meta.phase ? ` · ${meta.phase}` : ''}{meta.result ? ` · ${meta.result}` : ''}</span>
+          ) : (
+            <span className="text-muted-foreground">{meta.baseBranch} ← {meta.branch}</span>
+          )}
           <span className="ml-auto flex items-center gap-2">
             {running ? (
               <Button
@@ -293,8 +296,11 @@ export function AgentsPanel() {
                   )}
                 >
                   <span className="font-semibold text-foreground">{j.key}</span>
+                  <span className="rounded-none border border-border px-1 text-[10px] uppercase text-muted-foreground">{j.profile}</span>
                   <span className="text-muted-foreground">{j.repo}</span>
-                  <span className="truncate text-muted-foreground">{j.branch}</span>
+                  {j.profile === 'acceptance'
+                    ? <span className="truncate text-muted-foreground">{j.reason ?? j.phase ?? ''}</span>
+                    : <span className="truncate text-muted-foreground">{j.branch}</span>}
                   <span className="ml-auto text-muted-foreground/60">{timeOf(j.startedAt)}</span>
                   <StatusPill status={j.status} />
                 </button>

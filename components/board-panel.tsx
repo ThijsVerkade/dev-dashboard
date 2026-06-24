@@ -15,7 +15,7 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import { Bot, Check, ChevronsUpDown } from 'lucide-react'
+import { Bot, Check, ChevronsUpDown, FlaskConical } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Board, BoardColumn, BoardRow } from '@/lib/sources/board'
 
@@ -183,6 +183,21 @@ export function BoardPanel() {
                               >
                                 <Bot className="size-3" />
                               </Button>
+                              {stage.id === 'acceptance' && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  title="Acceptance-test this ticket on staging (verifies the deploy, then browser-tests it; comments the result on Jira)"
+                                  className="size-5 p-0 text-muted-foreground hover:text-primary"
+                                  onClick={() => confirm(`Acceptance-test ${row.key} on staging`, async () => {
+                                    const err = await post('/api/agent/start', { key: row.key, profile: 'acceptance' })
+                                    if (err) setError(err)
+                                    else setNotice(`Acceptance test dispatched for ${row.key} → see Agents page`)
+                                  })}
+                                >
+                                  <FlaskConical className="size-3" />
+                                </Button>
+                              )}
                               <AssigneePicker issueKey={row.key} current={row.assignee} />
                             </div>
                           </div>
