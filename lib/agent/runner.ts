@@ -13,7 +13,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { dashboardConfig, resolveGroupRepo, reposForGroup, agentGroups } from '@/dashboard.config'
+import { dashboardConfig, resolveGroupRepo, reposForGroup } from '@/dashboard.config'
 import { getIssueDetail, getAcceptanceDetail, addComment } from '@/lib/sources/jira'
 import { slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
@@ -307,7 +307,7 @@ async function startAcceptanceJob(key: string, group?: string, app?: string): Pr
   writeMeta(meta)
 
   // Run gates + agent without blocking the HTTP response.
-  void runAcceptance(id, repoPath, stagingUrl, detail).catch((e) => {
+  void runAcceptance(id, repoPath, stagingUrl, detail, group).catch((e) => {
     finish(id, 'failed', { reason: e instanceof Error ? e.message : 'acceptance run crashed' })
   })
   return ok({ id })
@@ -318,10 +318,11 @@ async function runAcceptance(
   repoPath: string,
   stagingUrl: string | undefined,
   detail: AcceptanceDetail,
+  group?: string,
 ): Promise<void> {
   // 1. Readiness
   if (!stagingUrl) {
-    finish(id, 'blocked', { reason: `No staging URL for group (set STAGING_URLS)` })
+    finish(id, 'blocked', { reason: `No staging URL for group "${group}" (set STAGING_URLS)` })
     return
   }
   const missing = checkReadiness(detail)
