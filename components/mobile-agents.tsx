@@ -126,6 +126,14 @@ export function MobileAgents() {
   useEffect(() => {
     setToken(loadAgentToken())
   }, [])
+  const [groups, setGroups] = useState<string[]>([])
+  const [group, setGroup] = useState<string>('')
+  useEffect(() => {
+    fetch('/api/agent/groups')
+      .then((r) => r.json())
+      .then((j) => { if (j.ok) { setGroups(j.data.groups); setGroup(j.data.groups[0] ?? '') } })
+      .catch(() => {})
+  }, [])
 
   const tickets = usePoll<Issue[]>('/api/jira/my', 20000)
   const jobs = usePoll<JobMeta[]>('/api/agent/jobs', 3000)
@@ -133,17 +141,18 @@ export function MobileAgents() {
   const jobList = jobs.data?.ok ? jobs.data.data : []
 
   async function dispatch(key: string) {
+    if (!group) { setMsg('No group configured'); return }
     setBusyKey(key)
     setMsg(null)
     try {
       const res = await fetch('/api/agent/start', {
         method: 'POST',
         headers: buildTriggerHeaders(token),
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key, group }),
       })
       const json = await res.json()
       if (json.ok) {
-        setMsg(`Dispatched ${key}`)
+        setMsg(`Dispatched ${key} → ${group}`)
         setSelected(json.data.ids?.[0] ?? null)
       } else {
         setMsg(json.message ?? 'Failed to start')
@@ -166,6 +175,20 @@ export function MobileAgents() {
       />
 
       {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
+
+      {groups.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {groups.map((g) => (
+            <button
+              key={g}
+              onClick={() => setGroup(g)}
+              className={`border px-3 py-1 text-xs ${g === group ? 'border-primary text-primary' : 'border-border text-muted-foreground'}`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      )}
 
       <section className="space-y-2">
         <h2 className="text-xs text-muted-foreground">My tickets</h2>

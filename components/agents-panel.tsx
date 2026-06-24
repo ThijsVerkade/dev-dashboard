@@ -193,18 +193,26 @@ export function AgentsPanel() {
   useEffect(() => {
     setToken(loadAgentToken())
   }, [])
+  const [groups, setGroups] = useState<string[]>([])
+  const [group, setGroup] = useState<string>('')
+  useEffect(() => {
+    fetch('/api/agent/groups')
+      .then((r) => r.json())
+      .then((j) => { if (j.ok) { setGroups(j.data.groups); setGroup(j.data.groups[0] ?? '') } })
+      .catch(() => {})
+  }, [])
   const jobs = usePoll<JobMeta[]>('/api/agent/jobs', 3000)
 
   async function send() {
     const k = key.trim()
-    if (!k || busy) return
+    if (!k || busy || !group) return
     setBusy(true)
     setMsg(null)
     try {
       const res = await fetch('/api/agent/start', {
         method: 'POST',
         headers: buildTriggerHeaders(token),
-        body: JSON.stringify({ key: k }),
+        body: JSON.stringify({ key: k, group }),
       })
       const json = await res.json()
       if (json.ok) {
@@ -234,6 +242,13 @@ export function AgentsPanel() {
         </CardHeader>
         <CardContent className="space-y-2 pt-4">
           <div className="flex gap-2">
+            <select
+              value={group}
+              onChange={(e) => setGroup(e.target.value)}
+              className="rounded-none border border-input bg-transparent px-2 font-mono text-sm"
+            >
+              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
             <Input
               value={key}
               onChange={(e) => setKey(e.target.value)}
@@ -241,7 +256,7 @@ export function AgentsPanel() {
               placeholder="Jira ticket key, e.g. NBDE-817"
               className="rounded-none font-mono text-sm"
             />
-            <Button onClick={send} disabled={busy} className="rounded-none font-mono">
+            <Button onClick={send} disabled={busy || !group} className="rounded-none font-mono">
               {busy ? 'Sending…' : 'Send to Claude'}
             </Button>
           </div>
