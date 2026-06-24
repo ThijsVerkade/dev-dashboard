@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { JobMeta, JobDetail } from '@/lib/agent/runner'
 import { AGENT_PROFILES } from '@/lib/agent/profiles'
+import { MobileQrDialog } from '@/components/mobile-qr-dialog'
 import {
   buildTriggerHeaders,
   loadAgentToken,
@@ -225,10 +226,11 @@ export function AgentsPanel() {
   return (
     <div className="space-y-4">
       <Card className="gap-0">
-        <CardHeader className="border-b border-border [.border-b]:pb-4">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 border-b border-border [.border-b]:pb-4">
           <CardTitle className="font-mono text-sm tracking-tight">
             <span className="text-muted-foreground">$ </span>Send Ticket to Claude
           </CardTitle>
+          <MobileQrDialog />
         </CardHeader>
         <CardContent className="space-y-2 pt-4">
           <div className="flex gap-2">

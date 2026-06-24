@@ -81,15 +81,50 @@ ACCEPTANCE_CRITERIA_FIELD=
 ## Trigger agents from your phone (Tailscale)
 
 The Agents page dispatches a Jira ticket to a headless `claude` agent that
-runs **on this machine**. To trigger and watch jobs from your phone:
+runs **on this machine**. `/m` is a phone-optimized view of it: your assigned
+tickets each with a **Dispatch** button, plus a live list of running jobs you
+can open and cancel. Set it up once:
 
-1. Install [Tailscale](https://tailscale.com/) on both the Mac and the phone,
-   signed into the same tailnet.
-2. On the Mac, run the dashboard bound to all interfaces:
-   - `npm run dev:lan` (or `npm run start:lan` for a production build)
-3. On the phone, open `http://<mac>.<tailnet>.ts.net:3000/m` — the Mac's
-   Tailscale MagicDNS name. `/m` is a phone-optimized view: your assigned
-   tickets with a **Dispatch** button, plus a live list of running jobs.
+**1. Install Tailscale on both devices, same account.**
+   - Mac: `brew install --cask tailscale` (or the Mac App Store app), then sign in.
+     Homebrew puts the `tailscale` CLI on your `PATH`, which the QR feature uses.
+   - Phone: install the Tailscale app (App Store / Play Store) and sign in to the
+     **same** account so both devices share one tailnet.
+
+**2. Enable MagicDNS** (one-time). In the [Tailscale admin console](https://login.tailscale.com/admin/dns)
+   → **DNS** → enable **MagicDNS**. This gives the Mac a stable name.
+
+**3. Find the Mac's tailnet name:**
+   ```bash
+   tailscale status      # the Mac's row shows e.g. macbook.tailXXXX.ts.net
+   ```
+
+**4. Configure `.env.local`:**
+   ```
+   # Map a Jira project key -> local repo dir so dispatch can resolve a checkout:
+   AGENT_REPOS="NBDE:auction-api"
+   # Shared PIN required to dispatch/cancel from any device (recommended):
+   AGENT_TRIGGER_TOKEN=pick-a-secret-pin
+   # Optional: override the QR target if `tailscale status` isn't on PATH:
+   MOBILE_BASE_URL=http://macbook.tailXXXX.ts.net:3000
+   ```
+
+**5. Run the dashboard bound to all interfaces** (on the Mac):
+   ```bash
+   npm run dev:lan      # next dev -H 0.0.0.0  (or `npm run start:lan` for a prod build)
+   ```
+   macOS may prompt to allow incoming connections for `node` — allow it.
+
+**6. Join from the phone — two ways:**
+   - **Easiest:** on the desktop Agents page, click **📱 Open on phone** and scan the
+     QR code with your phone's camera. (The QR encodes the Mac's Tailscale `/m` URL,
+     auto-detected via `tailscale status`, or `MOBILE_BASE_URL` if set.)
+   - **Manual:** open `http://<mac>.tailXXXX.ts.net:3000/m` in the phone's browser.
+
+**7.** Enter the PIN once on the phone (stored on the device), then tap **Dispatch**.
+   The agent runs on your Mac; the page live-streams its progress.
+
+> The Mac must stay awake and keep `dev:lan` running for the phone to reach it.
 
 ### Trigger PIN (`AGENT_TRIGGER_TOKEN`)
 
