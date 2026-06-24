@@ -97,14 +97,16 @@ async function post(url: string, body: unknown): Promise<string | null> {
 }
 
 type AppOption = { name: string; repo: string; baseBranch: string }
+type GroupOption = { name: string; apps: AppOption[] }
 
 /**
- * Pick which application(s) a ticket targets, then dispatch one autonomous Claude
- * agent per repo (each in its own worktree). Pre-selects the apps already recorded
- * on the ticket; the selection is written back as `app:<name>` Jira labels.
+ * Pick a product group and which app(s) a ticket targets, then dispatch one autonomous
+ * Claude agent per repo (each in its own worktree). Pre-selects the group + apps already
+ * recorded on the ticket; the selection is written back as `app:<group>/<app>` labels.
  */
 function DispatchDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () => void; onDone: (msg: string) => void }) {
-  const [apps, setApps] = useState<AppOption[] | null>(null)
+  const [groups, setGroups] = useState<GroupOption[] | null>(null)
+  const [group, setGroup] = useState<string>('')
   const [sel, setSel] = useState<string[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -115,26 +117,38 @@ function DispatchDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () =
       .then((r) => r.json())
       .then((j) => {
         if (!alive) return
-        if (j.ok) { setApps(j.data.apps); setSel(j.data.selected ?? []) }
-        else setErr(j.message ?? 'Failed to load apps')
+        if (!j.ok) { setErr(j.message ?? 'Failed to load apps'); setGroups([]); return }
+        const gs: GroupOption[] = j.data.groups ?? []
+        setGroups(gs)
+        // Recorded labels look like "auction/api"; default to their group, else the first.
+        const recorded: string[] = j.data.selected ?? []
+        const firstRecordedGroup = recorded[0]?.split('/')[0]
+        const initial = gs.find((g) => g.name === firstRecordedGroup)?.name ?? gs[0]?.name ?? ''
+        setGroup(initial)
+        setSel(recorded.filter((s) => s.startsWith(`${initial}/`)).map((s) => s.slice(initial.length + 1)))
       })
-      .catch(() => { if (alive) setErr('Failed to load apps') })
+      .catch(() => { if (alive) { setErr('Failed to load apps'); setGroups([]) } })
     return () => { alive = false }
   }, [row.key])
 
+  const activeApps = groups?.find((g) => g.name === group)?.apps ?? []
+  const hasGroups = !!groups && groups.length > 0
+  const allSelected = activeApps.length > 0 && sel.length === activeApps.length
+
+  const pickGroup = (name: string) => { setGroup(name); setSel([]) }
   const toggle = (name: string) =>
     setSel((cur) => (cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]))
+  const toggleAll = () =>
+    setSel(allSelected ? [] : activeApps.map((a) => a.name))
 
-  const hasApps = !!apps && apps.length > 0
-
-  async function dispatch() {
+  async function dispatch(whole: boolean) {
     setBusy(true)
     setErr(null)
     try {
       const res = await fetch('/api/agent/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: row.key, apps: sel }),
+        body: JSON.stringify({ key: row.key, group, apps: whole ? [] : sel }),
       })
       const j = await res.json()
       if (j.ok) {
@@ -158,13 +172,37 @@ function DispatchDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () =
         </p>
         {err && <p className="text-[11px] text-destructive">[ FAIL ] {err}</p>}
 
-        {apps === null ? (
-          <p className="text-[11px] text-muted-foreground">loading apps…</p>
-        ) : hasApps ? (
-          <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground">Which application(s)? Pre-filled from the ticket.</p>
+        {groups === null ? (
+          <p className="text-[11px] text-muted-foreground">loading…</p>
+        ) : !hasGroups ? (
+          <p className="text-[11px] text-amber-500">
+            No groups configured — set AGENT_REPOS (e.g. auction/api@main).
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-1">
+              {groups.map((g) => (
+                <button
+                  key={g.name}
+                  type="button"
+                  onClick={() => pickGroup(g.name)}
+                  className={cn(
+                    'border px-2 py-1 text-xs',
+                    g.name === group ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-muted/40',
+                  )}
+                >
+                  {g.name}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-muted-foreground">Which application(s)? Pre-filled from the ticket.</p>
+              <button type="button" onClick={toggleAll} className="text-[11px] text-primary underline underline-offset-2">
+                {allSelected ? 'clear' : 'select all'}
+              </button>
+            </div>
             <div className="max-h-56 space-y-0.5 overflow-y-auto border border-border bg-background/60 p-1.5">
-              {apps.map((a) => (
+              {activeApps.map((a) => (
                 <button
                   key={a.name}
                   type="button"
@@ -178,16 +216,15 @@ function DispatchDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () =
               ))}
             </div>
           </div>
-        ) : (
-          <p className="text-[11px] text-amber-500">
-            No apps configured for this project — will dispatch the default repo (set AGENT_REPOS to map apps).
-          </p>
         )}
 
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button size="sm" onClick={dispatch} disabled={busy || apps === null || (hasApps && sel.length === 0)}>
-            {busy ? 'Dispatching…' : hasApps ? `Dispatch ${sel.length || ''}`.trim() : 'Dispatch default'}
+          <Button size="sm" variant="outline" onClick={() => dispatch(true)} disabled={busy || !hasGroups}>
+            {busy ? '…' : `Whole ${group || 'group'} (${activeApps.length})`}
+          </Button>
+          <Button size="sm" onClick={() => dispatch(false)} disabled={busy || !hasGroups || sel.length === 0}>
+            {busy ? 'Dispatching…' : `Dispatch ${sel.length || ''}`.trim()}
           </Button>
         </div>
       </div>
