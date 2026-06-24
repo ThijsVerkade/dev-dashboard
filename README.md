@@ -65,6 +65,19 @@ cloudwatchLogGroups: {
 },
 ```
 
+### Acceptance-tester agent profile
+
+Set environment variables to enable browser-based acceptance testing on Acceptance-column tickets:
+
+```
+# Per-Jira-project staging base URL (the acceptance agent browser-tests here):
+STAGING_URLS="NBDE:https://staging.example.com"
+# Optional: Jira custom field id holding acceptance criteria (else read from the description):
+ACCEPTANCE_CRITERIA_FIELD=
+# NOTE: staging LOGIN credentials are NOT configured here — the agent uses the target
+# repo's own local credentials from its checkout. The dashboard never stores secrets.
+```
+
 ## Trigger agents from your phone (Tailscale)
 
 The Agents page dispatches a Jira ticket to a headless `claude` agent that
