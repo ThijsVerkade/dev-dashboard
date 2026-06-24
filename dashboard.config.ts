@@ -75,16 +75,17 @@ export const dashboardConfig = {
   jiraProjects: parseEnvList(process.env.JIRA_PROJECTS),
   // Name of the manual GitLab job that deploys staging (played from the board).
   stagingJobName: process.env.GITLAB_STAGING_JOB ?? 'deploy:staging',
-  // Map Jira project key -> local repo directory name, e.g.
-  // AGENT_REPOS="NBDE:auction-api,ERP:erp-bff-erp". Resolved under workspaceDir.
+  // Map "<group>/<app>" -> local repo dir "<path>@<base branch>", resolved under
+  // workspaceDir. Shorthand: an entry with no ":value" defaults its repo path to the
+  // key, e.g. AGENT_REPOS="auction/api@main,lease/api@main" (== "auction/api:auction/api@main").
   agentRepos: parseEnvMap(process.env.AGENT_REPOS),
   // Optional explicit group order/allowlist, e.g. AGENT_GROUPS="auction,lease".
   agentGroupsOrder: parseEnvList(process.env.AGENT_GROUPS),
   // Base directory holding local repos. Defaults to ~/workspace (resolved server-side).
   workspaceDir: process.env.WORKSPACE_DIR ?? '',
-  // Map Jira project key -> staging base URL, e.g.
-  // STAGING_URLS="NBDE:https://staging.example.com,ERP:https://erp-stg.example.com".
-  // Missing key => the acceptance profile is not runnable for that project.
+  // Map group -> staging base URL, e.g.
+  // STAGING_URLS="auction:https://auction-stg.example.com,lease:https://lease-stg.example.com".
+  // Missing key => the acceptance profile is not runnable for that group.
   stagingUrls: parseEnvMap(process.env.STAGING_URLS),
   // Optional Jira custom field id holding acceptance criteria; empty => read from description.
   acceptanceCriteriaField: process.env.ACCEPTANCE_CRITERIA_FIELD ?? '',
