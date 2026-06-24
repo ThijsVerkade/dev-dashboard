@@ -1,30 +1,35 @@
 import { expect, test } from 'vitest'
-import { reposForProject, resolveAgentRepo } from '@/dashboard.config'
+import { agentGroups, reposForGroup, resolveGroupRepo } from '@/dashboard.config'
 
+// Shorthand (no ":value") and explicit-override entries coexist.
 const MAP = {
-  'NBDE/api': 'lease/api@main',
-  'NBDE/fe-bff': 'lease/fe-bff@main',
-  'NBDE/fe-erp': 'lease/fe-erp@main',
-  ERP: 'erp-bff-erp',
+  'auction/api': 'auction/api@main',
+  'auction/fe': 'auction/fe@main',
+  'lease/api': 'lease/api@main',
+  'lease/fe-bff': 'lease/custom-bff@develop', // explicit override: repo + branch differ
 }
 
-test('reposForProject lists the apps configured under a project, sorted', () => {
-  expect(reposForProject('NBDE', MAP)).toEqual(['api', 'fe-bff', 'fe-erp'])
-  expect(reposForProject('ERP', MAP)).toEqual([]) // flat entry has no apps
-  expect(reposForProject('NONE', MAP)).toEqual([])
+test('agentGroups derives distinct groups in first-seen order', () => {
+  expect(agentGroups(MAP)).toEqual(['auction', 'lease'])
 })
 
-test('resolveAgentRepo prefers PROJECT/app, falls back to the flat project default', () => {
-  expect(resolveAgentRepo('NBDE', 'fe-bff', MAP)).toBe('lease/fe-bff@main')
-  expect(resolveAgentRepo('ERP', undefined, MAP)).toBe('erp-bff-erp')
-  // unknown app for a multi-app project: no flat default, so undefined (don't mask the error)
-  expect(resolveAgentRepo('NBDE', 'nope', MAP)).toBeUndefined()
-  // flat project ignores the app and returns its single repo
-  expect(resolveAgentRepo('ERP', 'whatever', MAP)).toBe('erp-bff-erp')
-  expect(resolveAgentRepo('MISSING', 'api', MAP)).toBeUndefined()
+test('agentGroups honours an explicit order when given', () => {
+  expect(agentGroups(MAP, ['lease', 'auction'])).toEqual(['lease', 'auction'])
 })
 
-test('resolveAgentRepo with no app on a multi-app project picks the first configured app', () => {
-  // e.g. the acceptance flow dispatches without choosing an app
-  expect(resolveAgentRepo('NBDE', undefined, MAP)).toBe('lease/api@main')
+test('agentGroups ignores ordered names that have no repos', () => {
+  expect(agentGroups(MAP, ['lease', 'ghost', 'auction'])).toEqual(['lease', 'auction'])
+})
+
+test('reposForGroup lists a group apps, sorted; empty for unknown group', () => {
+  expect(reposForGroup('auction', MAP)).toEqual(['api', 'fe'])
+  expect(reposForGroup('lease', MAP)).toEqual(['api', 'fe-bff'])
+  expect(reposForGroup('nope', MAP)).toEqual([])
+})
+
+test('resolveGroupRepo returns the spec for a group+app, else undefined', () => {
+  expect(resolveGroupRepo('auction', 'api', MAP)).toBe('auction/api@main')
+  expect(resolveGroupRepo('lease', 'fe-bff', MAP)).toBe('lease/custom-bff@develop')
+  expect(resolveGroupRepo('auction', 'ghost', MAP)).toBeUndefined()
+  expect(resolveGroupRepo('ghost', 'api', MAP)).toBeUndefined()
 })
