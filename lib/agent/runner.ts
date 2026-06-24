@@ -13,9 +13,9 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { dashboardConfig, resolveAgentRepo, reposForProject } from '@/dashboard.config'
+import { dashboardConfig, resolveGroupRepo, reposForGroup, agentGroups } from '@/dashboard.config'
 import { getIssueDetail, getAcceptanceDetail, addComment } from '@/lib/sources/jira'
-import { projectKeyOf, slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
+import { slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
 import { Result, ok, failure } from '@/lib/result'
 import { type AgentProfile } from '@/lib/agent/profiles'
@@ -32,6 +32,8 @@ export type JobMeta = {
   repo: string
   /** App name within the project (e.g. 'api'), when the ticket targets a specific repo. */
   app?: string
+  /** Product group the repo belongs to (e.g. 'auction'). */
+  group?: string
   /** Absolute path of the isolated git worktree the agent runs in. */
   worktree?: string
   branch: string
@@ -139,25 +141,27 @@ function reconcile(m: JobMeta): JobMeta {
   return m
 }
 
-/** No-repo-mapped failure, with a hint listing the project's configured apps. */
-function noRepoFailure(projectKey: string): Result<never> {
-  const apps = reposForProject(projectKey)
+/** No-repo-mapped failure, with a hint listing the group's configured apps. */
+function noRepoFailure(group: string): Result<never> {
+  const apps = reposForGroup(group)
   const hint = apps.length
     ? `Pass one of its apps: ${apps.join(', ')}.`
-    : `Set AGENT_REPOS (e.g. ${projectKey}/api:group/api@main or ${projectKey}:my-repo).`
-  return failure(`No repo mapped for project "${projectKey}". ${hint}`)
+    : `Group "${group}" has no repos. Set AGENT_REPOS (e.g. ${group}/api@main).`
+  return failure(`No repo mapped for "${group}/${'<app>'}". ${hint}`)
 }
 
 /** Resolve repo, build the prompt from the ticket, spawn a detached headless agent in an isolated worktree. */
 export async function startJob(
   key: string,
   profile: AgentProfile = 'implement',
+  group?: string,
   app?: string,
 ): Promise<Result<{ id: string }>> {
-  if (profile === 'acceptance') return startAcceptanceJob(key, app)
-  const projectKey = projectKeyOf(key)
-  const spec = resolveAgentRepo(projectKey, app)
-  if (!spec) return noRepoFailure(projectKey)
+  if (profile === 'acceptance') return startAcceptanceJob(key, group, app)
+  if (!group) return failure('group is required')
+  if (!app) return noRepoFailure(group)
+  const spec = resolveGroupRepo(group, app)
+  if (!spec) return noRepoFailure(group)
 
   const { repo: repoName, baseBranch } = parseRepoSpec(spec)
   const repoPath = join(workspaceDir(), repoName)
@@ -189,6 +193,7 @@ export async function startJob(
       key: detail.data.key,
       repo: repoName,
       app,
+      group,
       worktree: wtDir,
       branch,
       baseBranch,
@@ -278,11 +283,12 @@ function finish(id: string, status: JobStatus, extra: Partial<JobMeta> = {}): vo
  * headless browser-testing agent and post the verdict to Jira. Gates run async after
  * the job id is returned; the dashboard server must stay up for the run to complete.
  */
-async function startAcceptanceJob(key: string, app?: string): Promise<Result<{ id: string }>> {
-  const projectKey = projectKeyOf(key)
-  const stagingUrl = dashboardConfig.stagingUrls[projectKey]
-  const spec = resolveAgentRepo(projectKey, app)
-  if (!spec) return noRepoFailure(projectKey)
+async function startAcceptanceJob(key: string, group?: string, app?: string): Promise<Result<{ id: string }>> {
+  if (!group) return failure('group is required')
+  if (!app) return noRepoFailure(group)
+  const stagingUrl = dashboardConfig.stagingUrls[group]
+  const spec = resolveGroupRepo(group, app)
+  if (!spec) return noRepoFailure(group)
   const { repo: repoName } = parseRepoSpec(spec)
   const repoPath = join(workspaceDir(), repoName)
   if (!existsSync(join(repoPath, '.git'))) return failure(`Git repo not found at ${repoPath}`)
@@ -294,7 +300,7 @@ async function startAcceptanceJob(key: string, app?: string): Promise<Result<{ i
   const id = `${detail.key}-${Date.now()}`
   mkdirSync(JOBS_DIR, { recursive: true })
   const meta: JobMeta = {
-    id, key: detail.key, repo: repoName, app, branch: '', baseBranch: '',
+    id, key: detail.key, repo: repoName, app, group, branch: '', baseBranch: '',
     profile: 'acceptance', status: 'running', phase: 'readiness',
     startedAt: new Date().toISOString(), pid: 0,
   }
@@ -315,7 +321,7 @@ async function runAcceptance(
 ): Promise<void> {
   // 1. Readiness
   if (!stagingUrl) {
-    finish(id, 'blocked', { reason: `No staging URL for ${projectKeyOf(detail.key)} (set STAGING_URLS)` })
+    finish(id, 'blocked', { reason: `No staging URL for group (set STAGING_URLS)` })
     return
   }
   const missing = checkReadiness(detail)
