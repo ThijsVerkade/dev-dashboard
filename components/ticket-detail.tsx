@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/status-badge'
 import { LiveTail } from '@/components/live-tail'
 import type { BoardRow } from '@/lib/sources/board'
-import type { Pipeline, Job } from '@/lib/sources/gitlab'
+import type { Job, MrNote, PipelineWithJobs } from '@/lib/sources/gitlab'
 
 const shortRef = (r: string) => r.replace('refs/merge-requests/', 'mr!').replace(/\/head$/, '')
 
@@ -46,34 +46,45 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: () => void }) {
-  const [jobs, setJobs] = useState<Job[] | null>(null)
-  const [jobsError, setJobsError] = useState<string | null>(null)
+  const [pipelines, setPipelines] = useState<PipelineWithJobs[] | null>(null)
+  const [pipelinesError, setPipelinesError] = useState<string | null>(null)
+  const [notes, setNotes] = useState<MrNote[] | null>(null)
+  const [notesError, setNotesError] = useState<string | null>(null)
   const [openJob, setOpenJob] = useState<number | null>(null)
   const [playBusy, setPlayBusy] = useState<number | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
 
   useEffect(() => {
-    setJobs(null)
-    setJobsError(null)
+    setPipelines(null)
+    setPipelinesError(null)
+    setNotes(null)
+    setNotesError(null)
     setOpenJob(null)
     if (!row?.mr || !row.repo) return
     const project = row.repo.project
-    const sha = row.mr.sha
+    const iid = row.mr.iid
+    const q = `?project=${encodeURIComponent(project)}`
     let active = true
     ;(async () => {
       try {
-        const plRes = await fetch('/api/gitlab/pipelines')
-        const plJson = await plRes.json()
-        if (!plJson.ok) { if (active) setJobsError(plJson.message ?? 'Failed to load pipelines'); return }
-        const pl = (plJson.data as Pipeline[]).find((p) => p.project === project && p.sha === sha)
-        if (!pl) { if (active) setJobs([]); return }
-        const jRes = await fetch(`/api/gitlab/pipelines/${pl.id}/jobs?project=${encodeURIComponent(project)}`)
-        const jJson = await jRes.json()
+        const res = await fetch(`/api/gitlab/merge_requests/${iid}/pipelines${q}`)
+        const json = await res.json()
         if (!active) return
-        if (jJson.ok) setJobs(jJson.data)
-        else setJobsError(jJson.message ?? 'Failed to load jobs')
+        if (json.ok) setPipelines(json.data)
+        else setPipelinesError(json.message ?? 'Failed to load pipelines')
       } catch {
-        if (active) setJobsError('Failed to load jobs')
+        if (active) setPipelinesError('Failed to load pipelines')
+      }
+    })()
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/gitlab/merge_requests/${iid}/notes${q}`)
+        const json = await res.json()
+        if (!active) return
+        if (json.ok) setNotes(json.data)
+        else setNotesError(json.message ?? 'Failed to load comments')
+      } catch {
+        if (active) setNotesError('Failed to load comments')
       }
     })()
     return () => { active = false }
@@ -90,8 +101,12 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
     try {
       const res = await fetch(`/api/gitlab/jobs/${job.id}/play?project=${encodeURIComponent(project)}`, { method: 'POST' })
       const json = await res.json()
-      if (json.ok) setJobs((cur) => (cur ? cur.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)) : cur))
-      else setPlayError(json.message ?? 'Play failed')
+      if (json.ok) {
+        setPipelines((cur) => cur && cur.map((p) => ({
+          ...p,
+          jobs: p.jobs.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)),
+        })))
+      } else setPlayError(json.message ?? 'Play failed')
     } catch {
       setPlayError('Play failed')
     } finally {
@@ -173,42 +188,79 @@ export function TicketDetail({ row, onClose }: { row: BoardRow | null; onClose: 
             )}
 
             {mr && (
-              <div className="space-y-2 border-t border-border pt-3">
-                <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">pipeline jobs</div>
-                {jobsError && <p className="font-mono text-xs text-destructive">[ FAIL ] {jobsError}</p>}
-                {!jobs && !jobsError && (
+              <div className="space-y-3 border-t border-border pt-3">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">pipelines</div>
+                {pipelinesError && <p className="font-mono text-xs text-destructive">[ FAIL ] {pipelinesError}</p>}
+                {!pipelines && !pipelinesError && (
                   <div className="space-y-2"><Skeleton className="h-4 w-1/2" /><Skeleton className="h-4 w-2/3" /></div>
                 )}
-                {jobs && jobs.length === 0 && !jobsError && (
-                  <p className="font-mono text-xs text-muted-foreground">No pipeline found for {mr.sha.slice(0, 8)}.</p>
+                {pipelines && pipelines.length === 0 && !pipelinesError && (
+                  <p className="font-mono text-xs text-muted-foreground">No pipelines for this merge request.</p>
                 )}
-                {jobs && jobs.length > 0 && (
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {groupByStage(jobs).map(([stage, stageJobs]) => (
-                      <div key={stage} className="flex w-[160px] shrink-0 flex-col gap-1">
-                        <div className="border-b border-border pb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{stage}</div>
-                        {stageJobs.map((j) => (
-                          <div key={j.id} className="space-y-1 rounded-none border border-border bg-background/60 p-1.5">
-                            <StatusBadge status={j.status} />
-                            <div className="truncate font-mono text-[11px]" title={j.name}>{j.name}</div>
-                            <div className="flex flex-wrap gap-1">
-                              {j.status === 'manual' && (
-                                <Button size="sm" variant="outline" disabled={playBusy === j.id} className="h-5 px-1.5 text-[10px]"
-                                  onClick={() => play(j)}>{playBusy === j.id ? '…' : '▶ run'}</Button>
-                              )}
-                              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]"
-                                onClick={() => setOpenJob(openJob === j.id ? null : j.id)}>{openJob === j.id ? 'hide' : 'tail'}</Button>
-                            </div>
+                {pipelines && pipelines.map((pl) => (
+                  <div key={pl.id} className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted-foreground">
+                      <StatusBadge status={pl.status} />
+                      <a className="text-primary hover:underline" href={pl.webUrl} target="_blank" rel="noreferrer">#{pl.id} ↗</a>
+                      <span>{pl.sha.slice(0, 8)}</span>
+                      {pl.source && <span className="text-muted-foreground/60">{pl.source}</span>}
+                    </div>
+                    {pl.jobs.length === 0 ? (
+                      <p className="font-mono text-xs text-muted-foreground">No jobs.</p>
+                    ) : (
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {groupByStage(pl.jobs).map(([stage, stageJobs]) => (
+                          <div key={stage} className="flex w-[160px] shrink-0 flex-col gap-1">
+                            <div className="border-b border-border pb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{stage}</div>
+                            {stageJobs.map((j) => (
+                              <div key={j.id} className="space-y-1 rounded-none border border-border bg-background/60 p-1.5">
+                                <StatusBadge status={j.status} />
+                                <div className="truncate font-mono text-[11px]" title={j.name}>{j.name}</div>
+                                <div className="flex flex-wrap gap-1">
+                                  {j.status === 'manual' && (
+                                    <Button size="sm" variant="outline" disabled={playBusy === j.id} className="h-5 px-1.5 text-[10px]"
+                                      onClick={() => play(j)}>{playBusy === j.id ? '…' : '▶ run'}</Button>
+                                  )}
+                                  <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]"
+                                    onClick={() => setOpenJob(openJob === j.id ? null : j.id)}>{openJob === j.id ? 'hide' : 'tail'}</Button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         ))}
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
+                ))}
                 {playError && <p className="font-mono text-xs text-destructive">[ FAIL ] {playError}</p>}
                 {openJob !== null && project && (
                   <LiveTail src={`/api/gitlab/jobs/${openJob}/trace?project=${encodeURIComponent(project)}`} />
                 )}
+              </div>
+            )}
+
+            {mr && (
+              <div className="space-y-2 border-t border-border pt-3">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                  comments{notes && notes.length > 0 ? ` (${notes.length})` : ''}
+                </div>
+                {notesError && <p className="font-mono text-xs text-destructive">[ FAIL ] {notesError}</p>}
+                {!notes && !notesError && <Skeleton className="h-4 w-1/2" />}
+                {notes && notes.length === 0 && !notesError && (
+                  <p className="font-mono text-xs text-muted-foreground">No comments.</p>
+                )}
+                {notes && notes.map((n) => (
+                  <div key={n.id} className="space-y-1 rounded-none border border-border bg-background/60 p-2">
+                    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                      <a className="text-primary hover:underline" href={n.authorUrl} target="_blank" rel="noreferrer">{n.author}</a>
+                      <span>{new Date(n.createdAt).toLocaleString()}</span>
+                      {n.edited && <span className="text-muted-foreground/60">(edited)</span>}
+                      {n.path && <span className="text-muted-foreground/60">on {n.path}</span>}
+                      {n.resolvable && <span className={n.resolved ? 'text-primary' : 'text-destructive'}>{n.resolved ? 'resolved' : 'unresolved'}</span>}
+                    </div>
+                    <div className="whitespace-pre-wrap break-words font-mono text-xs text-foreground">{n.body}</div>
+                  </div>
+                ))}
               </div>
             )}
           </>

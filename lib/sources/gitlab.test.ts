@@ -2,7 +2,8 @@ import { expect, test } from 'vitest'
 import {
   mapPipeline, getPipelines, excludeProjects,
   mapMergeRequest, mapDeployment, mapTag, hasApiScope,
-  isValidNewTag,
+  isValidNewTag, mapJob, mapNote, toUserNotes,
+  getMrNotes, getMrPipelines,
 } from './gitlab'
 
 test('mapPipeline maps raw GitLab pipeline to our shape', () => {
@@ -87,4 +88,68 @@ test('isValidNewTag rejects blank, bad format, and duplicates', () => {
   expect(isValidNewTag('', []).ok).toBe(false)
   expect(isValidNewTag('not a tag', []).ok).toBe(false)
   expect(isValidNewTag('v1.0.0', [{ name: 'v1.0.0', webUrl: '' }]).ok).toBe(false)
+})
+
+test('mapJob maps raw GitLab job to our shape', () => {
+  const raw = { id: 9, name: 'All Tests', stage: 'Test', status: 'success', web_url: 'https://gl/x/-/jobs/9' }
+  expect(mapJob(raw)).toEqual({ id: 9, name: 'All Tests', stage: 'Test', status: 'success', webUrl: 'https://gl/x/-/jobs/9' })
+})
+
+test('mapNote normalises author, edited flag and diff path', () => {
+  const raw = {
+    id: 377825,
+    author: { name: 'Jeramai Faber', username: 'jeramai.faber', web_url: 'https://gl/jeramai.faber', avatar_url: 'https://gl/avatar.png' },
+    body: 'looks good',
+    created_at: '2026-06-24T05:47:26.011Z',
+    updated_at: '2026-06-24T06:00:00.000Z',
+    resolvable: true,
+    resolved: false,
+    position: { new_path: 'src/NoteRepository.php' },
+  }
+  expect(mapNote(raw)).toEqual({
+    id: 377825,
+    author: 'Jeramai Faber',
+    authorUrl: 'https://gl/jeramai.faber',
+    avatarUrl: 'https://gl/avatar.png',
+    body: 'looks good',
+    createdAt: '2026-06-24T05:47:26.011Z',
+    edited: true,
+    resolvable: true,
+    resolved: false,
+    path: 'src/NoteRepository.php',
+  })
+})
+
+test('mapNote marks unedited note and omits path for non-diff comments', () => {
+  const n = mapNote({ id: 1, author: { username: 'bob' }, body: 'hi', created_at: 't', updated_at: 't' })
+  expect(n.edited).toBe(false)
+  expect(n.path).toBeUndefined()
+  expect(n.author).toBe('bob')
+})
+
+test('toUserNotes drops system notes and empty bodies, oldest first', () => {
+  const raw = [
+    { id: 3, system: false, body: 'second', author: { username: 'a' }, created_at: '2026-06-24T05:00:00Z' },
+    { id: 2, system: true, body: 'added 1 commit', author: { username: 'a' }, created_at: '2026-06-24T04:30:00Z' },
+    { id: 1, system: false, body: 'first', author: { username: 'a' }, created_at: '2026-06-24T04:00:00Z' },
+    { id: 4, system: false, body: '   ', author: { username: 'a' }, created_at: '2026-06-24T06:00:00Z' },
+  ]
+  const out = toUserNotes(raw)
+  expect(out.map((n) => n.id)).toEqual([1, 3])
+})
+
+test('getMrNotes reports unconfigured when env missing', async () => {
+  delete process.env.GITLAB_HOST
+  delete process.env.GITLAB_TOKEN
+  const r = await getMrNotes('g/p', 1)
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.reason).toBe('unconfigured')
+})
+
+test('getMrPipelines reports unconfigured when env missing', async () => {
+  delete process.env.GITLAB_HOST
+  delete process.env.GITLAB_TOKEN
+  const r = await getMrPipelines('g/p', 1)
+  expect(r.ok).toBe(false)
+  if (!r.ok) expect(r.reason).toBe('unconfigured')
 })

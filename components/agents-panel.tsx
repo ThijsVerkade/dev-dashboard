@@ -95,7 +95,7 @@ function JobView({ id, token, onSelect }: { id: string; token: string | null; on
         body: JSON.stringify({ key: meta.key }),
       })
       const json = await res.json()
-      if (json.ok) onSelect(json.data.id)
+      if (json.ok) onSelect(json.data.ids?.[0] ?? id)
     } finally {
       setBusy(false)
     }
@@ -210,7 +210,7 @@ export function AgentsPanel() {
       if (json.ok) {
         setMsg(`Dispatched ${k}`)
         setKey('')
-        setSelected(json.data.id)
+        setSelected(json.data.ids?.[0] ?? null)
       } else {
         setMsg(json.message ?? 'Failed to start')
       }

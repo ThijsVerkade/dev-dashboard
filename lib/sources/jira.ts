@@ -30,6 +30,18 @@ export function mapIssue(raw: any, host: string): Issue {
   }
 }
 
+/** Jira label prefix that records which application/repo a ticket targets. */
+export const APP_LABEL_PREFIX = 'app:'
+
+/** Extract the target apps from a ticket's labels, e.g. ['app:fe','app:bff','x'] -> ['fe','bff']. */
+export function parseAppLabels(labels: unknown): string[] {
+  if (!Array.isArray(labels)) return []
+  return labels
+    .filter((l): l is string => typeof l === 'string' && l.startsWith(APP_LABEL_PREFIX))
+    .map((l) => l.slice(APP_LABEL_PREFIX.length))
+    .filter(Boolean)
+}
+
 export function buildJql(where: string, projects: string[]): string {
   const scope = projects.length ? ` AND project in (${projects.join(',')})` : ''
   return `${where}${scope} ORDER BY updated DESC`
@@ -146,7 +158,7 @@ export async function getIssueDetail(key: string): Promise<Result<IssueDetail>> 
   const cfg = env.jira()
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
-    const url = `${cfg.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description`
+    const url = `${cfg.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,labels`
     const res = await fetch(url, {
       headers: { Authorization: basicAuth(cfg), Accept: 'application/json' },
     })
@@ -159,7 +171,42 @@ export async function getIssueDetail(key: string): Promise<Result<IssueDetail>> 
       summary: f.summary ?? '',
       description: flattenAdf(f.description),
       url: `${cfg.host}/browse/${issueKey}`,
+      apps: parseAppLabels(f.labels),
     })
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'Jira request failed')
+  }
+}
+
+/**
+ * Record the target apps on a ticket as `app:<name>` labels, preserving every
+ * other label and replacing any existing `app:*`. Best-effort: needs a write token.
+ */
+export async function setIssueApps(issueKey: string, apps: string[]): Promise<Result<{ key: string }>> {
+  const cfg = env.jira()
+  if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
+  try {
+    const getRes = await fetch(
+      `${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=labels`,
+      { headers: { Authorization: basicAuth(cfg), Accept: 'application/json' } },
+    )
+    if (!getRes.ok) return failure(`Jira ${getRes.status}: ${(await getRes.text()).slice(0, 200)}`)
+    const current: unknown = (await getRes.json())?.fields?.labels
+    const kept = Array.isArray(current)
+      ? current.filter((l): l is string => typeof l === 'string' && !l.startsWith(APP_LABEL_PREFIX))
+      : []
+    const labels = [...kept, ...apps.map((a) => `${APP_LABEL_PREFIX}${a}`)]
+    const res = await fetch(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
+      method: 'PUT',
+      headers: { Authorization: basicAuth(cfg), Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields: { labels } }),
+    })
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 200)
+      const hint = res.status === 403 ? ' (token lacks Jira write permission)' : ''
+      return failure(`Jira ${res.status}${hint}: ${detail}`)
+    }
+    return ok({ key: issueKey })
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'Jira request failed')
   }

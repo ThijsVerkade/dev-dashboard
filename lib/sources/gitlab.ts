@@ -11,6 +11,14 @@ export type Pipeline = {
 export type Job = {
   id: number; name: string; stage: string; status: string; webUrl: string
 }
+// A pipeline plus its jobs, as returned for a single merge request.
+export type PipelineWithJobs = Pipeline & { source?: string; jobs: Job[] }
+// A human comment on a merge request (system notes are filtered out).
+export type MrNote = {
+  id: number; author: string; authorUrl: string; avatarUrl: string
+  body: string; createdAt: string; edited: boolean
+  resolvable: boolean; resolved: boolean; path?: string
+}
 
 export type MergeRequest = {
   iid: number; title: string; webUrl: string; draft: boolean
@@ -66,6 +74,34 @@ export function mapPipeline(raw: any, project: string): Pipeline {
     updatedAt: raw.updated_at,
     project,
   }
+}
+
+export function mapJob(raw: any): Job {
+  return { id: raw.id, name: raw.name, stage: raw.stage, status: raw.status, webUrl: raw.web_url }
+}
+
+export function mapNote(raw: any): MrNote {
+  return {
+    id: raw.id,
+    author: raw.author?.name ?? raw.author?.username ?? 'unknown',
+    authorUrl: raw.author?.web_url ?? '',
+    avatarUrl: raw.author?.avatar_url ?? '',
+    body: raw.body ?? '',
+    createdAt: raw.created_at ?? '',
+    edited: !!raw.updated_at && raw.updated_at !== raw.created_at,
+    resolvable: raw.resolvable ?? false,
+    resolved: raw.resolved ?? false,
+    path: raw.position?.new_path ?? raw.position?.old_path ?? undefined,
+  }
+}
+
+// Keep human comments only (drop GitLab system notes like "added 1 commit" and
+// empty bodies), oldest first so they read like the MR discussion.
+export function toUserNotes(raw: any[]): MrNote[] {
+  return raw
+    .filter((n) => !n.system && (n.body ?? '').trim().length > 0)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+    .map(mapNote)
 }
 
 // Drop any path equal to an exclude or nested under it (exclude + '/').
@@ -129,10 +165,45 @@ export async function getJobs(projectId: string, pipelineId: number): Promise<Re
   if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
   try {
     const raw = await api.Jobs.all(projectId, { pipelineId })
-    const jobs = raw.map((j: any) => ({
-      id: j.id, name: j.name, stage: j.stage, status: j.status, webUrl: j.web_url,
-    }))
-    return ok(jobs)
+    return ok(raw.map(mapJob))
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'GitLab request failed')
+  }
+}
+
+// All pipelines that ran for a single merge request, each with its jobs.
+// Uses the MR-scoped endpoint so pipelines are found by MR iid rather than by
+// matching a SHA against the globally-capped recent-pipelines list.
+export async function getMrPipelines(project: string, iid: number): Promise<Result<PipelineWithJobs[]>> {
+  const api = client()
+  if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
+  try {
+    const raw = await api.MergeRequests.allPipelines(project, iid, { perPage: 20, maxPages: 1 })
+    const withJobs = await Promise.all(
+      (raw as any[]).map(async (p) => {
+        let jobs: Job[] = []
+        try {
+          const jraw = await api.Jobs.all(project, { pipelineId: p.id })
+          jobs = (jraw as any[]).map(mapJob)
+        } catch {
+          jobs = []
+        }
+        return { ...mapPipeline(p, project), source: p.source, jobs }
+      }),
+    )
+    return ok(withJobs)
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'GitLab request failed')
+  }
+}
+
+// Human comments on a merge request, oldest first (system notes excluded).
+export async function getMrNotes(project: string, iid: number): Promise<Result<MrNote[]>> {
+  const api = client()
+  if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
+  try {
+    const raw = await api.MergeRequestNotes.all(project, iid, { perPage: 100, maxPages: 1 })
+    return ok(toUserNotes(raw as any[]))
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'GitLab request failed')
   }

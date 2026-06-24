@@ -1,5 +1,18 @@
 import { expect, test } from 'vitest'
-import { mapIssue, buildJql, flattenAdf } from './jira'
+import { mapIssue, buildJql, flattenAdf, parseAppLabels } from './jira'
+
+test('parseAppLabels extracts every app:<name> label, dropping others', () => {
+  expect(parseAppLabels(['frontend', 'app:fe-bff', 'app:bff', 'urgent'])).toEqual(['fe-bff', 'bff'])
+  expect(parseAppLabels(['app:api'])).toEqual(['api'])
+})
+
+test('parseAppLabels returns [] when no app label or input is not an array', () => {
+  expect(parseAppLabels(['frontend', 'urgent'])).toEqual([])
+  expect(parseAppLabels([])).toEqual([])
+  expect(parseAppLabels(undefined)).toEqual([])
+  expect(parseAppLabels('app:api')).toEqual([])
+  expect(parseAppLabels(['app:'])).toEqual([]) // empty name dropped
+})
 
 test('flattenAdf joins paragraphs with newlines and concatenates text runs', () => {
   const doc = {

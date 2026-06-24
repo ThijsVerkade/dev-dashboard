@@ -144,7 +144,7 @@ export function MobileAgents() {
       const json = await res.json()
       if (json.ok) {
         setMsg(`Dispatched ${key}`)
-        setSelected(json.data.id)
+        setSelected(json.data.ids?.[0] ?? null)
       } else {
         setMsg(json.message ?? 'Failed to start')
       }

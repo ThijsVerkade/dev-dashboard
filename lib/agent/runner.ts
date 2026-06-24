@@ -1,5 +1,5 @@
 import 'server-only'
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import {
   mkdirSync,
   readdirSync,
@@ -12,8 +12,8 @@ import {
   closeSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
-import { dashboardConfig } from '@/dashboard.config'
+import { join, dirname } from 'node:path'
+import { dashboardConfig, resolveAgentRepo, reposForProject } from '@/dashboard.config'
 import { getIssueDetail, getAcceptanceDetail, addComment } from '@/lib/sources/jira'
 import { projectKeyOf, slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
@@ -30,6 +30,10 @@ export type JobMeta = {
   id: string
   key: string
   repo: string
+  /** App name within the project (e.g. 'api'), when the ticket targets a specific repo. */
+  app?: string
+  /** Absolute path of the isolated git worktree the agent runs in. */
+  worktree?: string
   branch: string
   baseBranch: string
   profile: AgentProfile
@@ -49,6 +53,49 @@ const TAIL_BYTES = 256 * 1024
 const workspaceDir = () => dashboardConfig.workspaceDir || join(homedir(), 'workspace')
 const metaPath = (id: string) => join(JOBS_DIR, `${id}.json`)
 const logPath = (id: string) => join(JOBS_DIR, `${id}.log`)
+
+function git(repoPath: string, args: string[]): void {
+  execFileSync('git', ['-C', repoPath, ...args], { stdio: 'ignore', timeout: 120_000 })
+}
+function refExists(repoPath: string, ref: string): boolean {
+  try {
+    execFileSync('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', ref], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Create an isolated git worktree on a fresh branch off `baseBranch` (preferring the
+ * just-fetched `origin/<base>`), so the agent never touches the user's main checkout.
+ * The worktree lives in a sibling `.wt/agent-<id>` dir, matching the repo's `.wt/` convention.
+ * Returns the worktree path and the (possibly uniquified) branch actually created.
+ */
+function createWorktree(
+  repoPath: string,
+  desiredBranch: string,
+  baseBranch: string,
+  id: string,
+): Result<{ wtDir: string; branch: string }> {
+  const wtDir = join(dirname(repoPath), '.wt', `agent-${id}`)
+  // A retry of the same ticket would collide on the branch name — uniquify if it exists.
+  const branch = refExists(repoPath, `refs/heads/${desiredBranch}`)
+    ? `${desiredBranch}-${id.slice(-4)}`
+    : desiredBranch
+  try {
+    try {
+      git(repoPath, ['fetch', 'origin', baseBranch])
+    } catch {
+      // offline or no such remote branch — fall back to the local base ref
+    }
+    const base = refExists(repoPath, `origin/${baseBranch}`) ? `origin/${baseBranch}` : baseBranch
+    git(repoPath, ['worktree', 'add', wtDir, '-b', branch, base])
+    return ok({ wtDir, branch })
+  } catch (e) {
+    return failure(`Failed to create worktree at ${wtDir}: ${e instanceof Error ? e.message : 'git error'}`)
+  }
+}
 
 function writeMeta(m: JobMeta): void {
   mkdirSync(JOBS_DIR, { recursive: true })
@@ -92,13 +139,25 @@ function reconcile(m: JobMeta): JobMeta {
   return m
 }
 
-/** Resolve repo, build the prompt from the ticket, spawn a detached headless agent. */
-export async function startJob(key: string, profile: AgentProfile = 'implement'): Promise<Result<{ id: string }>> {
-  if (profile === 'acceptance') return startAcceptanceJob(key)
+/** No-repo-mapped failure, with a hint listing the project's configured apps. */
+function noRepoFailure(projectKey: string): Result<never> {
+  const apps = reposForProject(projectKey)
+  const hint = apps.length
+    ? `Pass one of its apps: ${apps.join(', ')}.`
+    : `Set AGENT_REPOS (e.g. ${projectKey}/api:group/api@main or ${projectKey}:my-repo).`
+  return failure(`No repo mapped for project "${projectKey}". ${hint}`)
+}
+
+/** Resolve repo, build the prompt from the ticket, spawn a detached headless agent in an isolated worktree. */
+export async function startJob(
+  key: string,
+  profile: AgentProfile = 'implement',
+  app?: string,
+): Promise<Result<{ id: string }>> {
+  if (profile === 'acceptance') return startAcceptanceJob(key, app)
   const projectKey = projectKeyOf(key)
-  const spec = dashboardConfig.agentRepos[projectKey]
-  if (!spec)
-    return failure(`No repo mapped for project "${projectKey}". Set AGENT_REPOS (e.g. ${projectKey}:my-repo or ${projectKey}:my-repo@develop).`)
+  const spec = resolveAgentRepo(projectKey, app)
+  if (!spec) return noRepoFailure(projectKey)
 
   const { repo: repoName, baseBranch } = parseRepoSpec(spec)
   const repoPath = join(workspaceDir(), repoName)
@@ -107,9 +166,13 @@ export async function startJob(key: string, profile: AgentProfile = 'implement')
   const detail = await getIssueDetail(key)
   if (!detail.ok) return detail
 
-  const branch = `feat/${detail.data.key}-${slugify(detail.data.summary) || 'work'}`
-  const prompt = buildAgentPrompt(detail.data, { branch, baseBranch })
+  const desiredBranch = `feat/${detail.data.key}-${slugify(detail.data.summary) || 'work'}`
   const id = `${detail.data.key}-${Date.now()}`
+
+  const wt = createWorktree(repoPath, desiredBranch, baseBranch, id)
+  if (!wt.ok) return wt
+  const { wtDir, branch } = wt.data
+  const prompt = buildAgentPrompt(detail.data, { branch, baseBranch })
 
   try {
     mkdirSync(JOBS_DIR, { recursive: true })
@@ -117,7 +180,7 @@ export async function startJob(key: string, profile: AgentProfile = 'implement')
     const child = spawn(
       CLAUDE_BIN,
       ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'],
-      { cwd: repoPath, detached: true, stdio: ['ignore', out, out] },
+      { cwd: wtDir, detached: true, stdio: ['ignore', out, out] },
     )
     closeSync(out)
 
@@ -125,6 +188,8 @@ export async function startJob(key: string, profile: AgentProfile = 'implement')
       id,
       key: detail.data.key,
       repo: repoName,
+      app,
+      worktree: wtDir,
       branch,
       baseBranch,
       profile: 'implement',
@@ -213,11 +278,11 @@ function finish(id: string, status: JobStatus, extra: Partial<JobMeta> = {}): vo
  * headless browser-testing agent and post the verdict to Jira. Gates run async after
  * the job id is returned; the dashboard server must stay up for the run to complete.
  */
-async function startAcceptanceJob(key: string): Promise<Result<{ id: string }>> {
+async function startAcceptanceJob(key: string, app?: string): Promise<Result<{ id: string }>> {
   const projectKey = projectKeyOf(key)
   const stagingUrl = dashboardConfig.stagingUrls[projectKey]
-  const spec = dashboardConfig.agentRepos[projectKey]
-  if (!spec) return failure(`No repo mapped for project "${projectKey}". Set AGENT_REPOS.`)
+  const spec = resolveAgentRepo(projectKey, app)
+  if (!spec) return noRepoFailure(projectKey)
   const { repo: repoName } = parseRepoSpec(spec)
   const repoPath = join(workspaceDir(), repoName)
   if (!existsSync(join(repoPath, '.git'))) return failure(`Git repo not found at ${repoPath}`)
@@ -229,7 +294,7 @@ async function startAcceptanceJob(key: string): Promise<Result<{ id: string }>> 
   const id = `${detail.key}-${Date.now()}`
   mkdirSync(JOBS_DIR, { recursive: true })
   const meta: JobMeta = {
-    id, key: detail.key, repo: repoName, branch: '', baseBranch: '',
+    id, key: detail.key, repo: repoName, app, branch: '', baseBranch: '',
     profile: 'acceptance', status: 'running', phase: 'readiness',
     startedAt: new Date().toISOString(), pid: 0,
   }

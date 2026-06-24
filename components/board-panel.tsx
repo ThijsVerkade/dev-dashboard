@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { usePoll } from '@/lib/use-poll'
 import { PanelShell } from '@/components/panel-shell'
 import { LiveTail } from '@/components/live-tail'
@@ -24,18 +24,19 @@ type Pending = { label: string; run: () => Promise<void> } | null
 const ENVS = ['dev', 'acceptance', 'staging', 'production'] as const
 const ENV_SHORT: Record<string, string> = { dev: 'D', acceptance: 'A', staging: 'S', production: 'P' }
 
-// Five fixed release-flow stages. Each Jira status column is bucketed into one
-// of these by status category + name, so the board always shows 5 side-by-side.
+// Four fixed release-flow stages. Each Jira status column is bucketed into one
+// of these by status category + name, so the board always shows 4 side-by-side.
+// Done-category columns are bucketed but not rendered (we don't track finished work here).
 const STAGES = [
   { id: 'todo', label: 'To Do' },
   { id: 'inprogress', label: 'In Progress' },
   { id: 'review', label: 'Code Review' },
   { id: 'acceptance', label: 'Acceptance' },
-  { id: 'done', label: 'Done' },
 ] as const
 
-function classify(col: BoardColumn): (typeof STAGES)[number]['id'] {
-  if (col.statusCategory === 'done') return 'done'
+// Returns null for done-category columns — finished work is not tracked on this board.
+function classify(col: BoardColumn): (typeof STAGES)[number]['id'] | null {
+  if (col.statusCategory === 'done') return null
   if (/review/i.test(col.status)) return 'review'
   if (/accept/i.test(col.status)) return 'acceptance'
   if (col.statusCategory === 'new') return 'todo'
@@ -43,8 +44,11 @@ function classify(col: BoardColumn): (typeof STAGES)[number]['id'] {
 }
 
 function groupIntoStages(columns: BoardColumn[]): Record<string, BoardRow[]> {
-  const out: Record<string, BoardRow[]> = { todo: [], inprogress: [], review: [], acceptance: [], done: [] }
-  for (const col of columns) out[classify(col)].push(...col.rows)
+  const out: Record<string, BoardRow[]> = { todo: [], inprogress: [], review: [], acceptance: [] }
+  for (const col of columns) {
+    const stage = classify(col)
+    if (stage) out[stage].push(...col.rows)
+  }
   return out
 }
 
@@ -92,6 +96,105 @@ async function post(url: string, body: unknown): Promise<string | null> {
   return json.ok ? null : json.message ?? 'Action failed'
 }
 
+type AppOption = { name: string; repo: string; baseBranch: string }
+
+/**
+ * Pick which application(s) a ticket targets, then dispatch one autonomous Claude
+ * agent per repo (each in its own worktree). Pre-selects the apps already recorded
+ * on the ticket; the selection is written back as `app:<name>` Jira labels.
+ */
+function DispatchDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () => void; onDone: (msg: string) => void }) {
+  const [apps, setApps] = useState<AppOption[] | null>(null)
+  const [sel, setSel] = useState<string[]>([])
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    fetch(`/api/agent/apps?key=${encodeURIComponent(row.key)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return
+        if (j.ok) { setApps(j.data.apps); setSel(j.data.selected ?? []) }
+        else setErr(j.message ?? 'Failed to load apps')
+      })
+      .catch(() => { if (alive) setErr('Failed to load apps') })
+    return () => { alive = false }
+  }, [row.key])
+
+  const toggle = (name: string) =>
+    setSel((cur) => (cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name]))
+
+  const hasApps = !!apps && apps.length > 0
+
+  async function dispatch() {
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch('/api/agent/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: row.key, apps: sel }),
+      })
+      const j = await res.json()
+      if (j.ok) {
+        const n = j.data.ids?.length ?? 0
+        onDone(`Dispatched ${row.key} → ${n} agent${n === 1 ? '' : 's'} (see Agents page)`)
+        onClose()
+      } else {
+        setErr(j.message ?? 'Dispatch failed')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
+      <div className="w-[28rem] max-w-[92vw] space-y-3 rounded-none border border-border bg-card p-4 font-mono text-sm">
+        <p className="text-foreground">Dispatch <span className="text-primary">{row.key}</span> to Claude</p>
+        <p className="text-[11px] text-muted-foreground">
+          Autonomous: bypasses permissions, works in an isolated worktree, pushes & opens an MR per repo.
+        </p>
+        {err && <p className="text-[11px] text-destructive">[ FAIL ] {err}</p>}
+
+        {apps === null ? (
+          <p className="text-[11px] text-muted-foreground">loading apps…</p>
+        ) : hasApps ? (
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">Which application(s)? Pre-filled from the ticket.</p>
+            <div className="max-h-56 space-y-0.5 overflow-y-auto border border-border bg-background/60 p-1.5">
+              {apps.map((a) => (
+                <button
+                  key={a.name}
+                  type="button"
+                  onClick={() => toggle(a.name)}
+                  className="flex w-full items-center gap-2 px-1 py-1 text-left text-xs hover:bg-muted/40"
+                >
+                  <Check className={cn('size-3.5 shrink-0', sel.includes(a.name) ? 'opacity-100 text-primary' : 'opacity-0')} />
+                  <span className="text-foreground">{a.repo}</span>
+                  <span className="ml-auto text-muted-foreground">{a.baseBranch}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-[11px] text-amber-500">
+            No apps configured for this project — will dispatch the default repo (set AGENT_REPOS to map apps).
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button size="sm" onClick={dispatch} disabled={busy || apps === null || (hasApps && sel.length === 0)}>
+            {busy ? 'Dispatching…' : hasApps ? `Dispatch ${sel.length || ''}`.trim() : 'Dispatch default'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BoardPanel() {
   const { data, loading } = usePoll<Board>('/api/board', 30_000)
   const [pending, setPending] = useState<Pending>(null)
@@ -100,6 +203,7 @@ export function BoardPanel() {
   const [notice, setNotice] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [detail, setDetail] = useState<BoardRow | null>(null)
+  const [dispatch, setDispatch] = useState<BoardRow | null>(null)
 
   const confirm = (label: string, run: () => Promise<void>) => setPending({ label, run })
 
@@ -154,7 +258,7 @@ export function BoardPanel() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
               {STAGES.map((stage) => {
                 const rows = match(stages[stage.id])
                 return (
@@ -173,13 +277,9 @@ export function BoardPanel() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                title="Send this ticket to a Claude agent (autonomous: bypasses permissions, pushes & opens an MR)"
+                                title="Send this ticket to a Claude agent (autonomous: pick the target app(s), works in a worktree, pushes & opens an MR)"
                                 className="size-5 p-0 text-muted-foreground hover:text-primary"
-                                onClick={() => confirm(`Send ${row.key} to Claude — autonomous, bypasses permissions, pushes & opens an MR`, async () => {
-                                  const err = await post('/api/agent/start', { key: row.key })
-                                  if (err) setError(err)
-                                  else setNotice(`Dispatched ${row.key} → see Agents page`)
-                                })}
+                                onClick={() => setDispatch(row)}
                               >
                                 <Bot className="size-3" />
                               </Button>
@@ -276,6 +376,14 @@ export function BoardPanel() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {dispatch && (
+              <DispatchDialog
+                row={dispatch}
+                onClose={() => setDispatch(null)}
+                onDone={(msg) => { setError(null); setNotice(msg) }}
+              />
             )}
 
             <TicketDetail row={detail} onClose={() => setDetail(null)} />

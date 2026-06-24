@@ -15,6 +15,42 @@ const parseEnvMap = (raw: string | undefined): Record<string, string> =>
       .filter((e): e is [string, string] => !!e && !!e[0] && !!e[1]),
   )
 
+// One project (e.g. Jira "NBDE") can span several apps/repos. They are keyed
+// "PROJECT/app" in AGENT_REPOS, e.g.
+//   AGENT_REPOS="NBDE/api:lease/api@main,NBDE/fe-bff:lease/fe-bff@main"
+// A flat "PROJECT:repo" entry (no app) still works as the project default.
+
+/** App names configured for a project, e.g. reposForProject('NBDE') -> ['api','fe-bff']. */
+export function reposForProject(
+  projectKey: string,
+  map: Record<string, string> = dashboardConfig.agentRepos,
+): string[] {
+  const prefix = `${projectKey}/`
+  return Object.keys(map)
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length))
+    .sort()
+}
+
+/**
+ * Resolve the repo spec for a project+app:
+ *  - explicit app  -> that app's repo, else the flat project default (no silent guessing)
+ *  - no app given  -> flat default, else the project's first configured app
+ */
+export function resolveAgentRepo(
+  projectKey: string,
+  app?: string,
+  map: Record<string, string> = dashboardConfig.agentRepos,
+): string | undefined {
+  if (app && map[`${projectKey}/${app}`]) return map[`${projectKey}/${app}`]
+  if (map[projectKey]) return map[projectKey]
+  if (!app) {
+    const [first] = reposForProject(projectKey, map)
+    if (first) return map[`${projectKey}/${first}`]
+  }
+  return undefined
+}
+
 export const dashboardConfig = {
   gitlabProjects: parseEnvList(process.env.GITLAB_PROJECTS),
   gitlabGroups: parseEnvList(process.env.GITLAB_GROUPS),

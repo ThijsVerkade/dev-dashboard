@@ -3,6 +3,8 @@ export type IssueDetail = {
   summary: string
   description: string
   url: string
+  /** Target applications/repos for this ticket, parsed from `app:<name>` Jira labels. */
+  apps?: string[]
 }
 
 /** Parse an AGENT_REPOS value `repo` or `repo@branch` into its parts (branch defaults to main). */
@@ -45,7 +47,7 @@ export function buildAgentPrompt(
     detail.description || '(no description provided)',
     ``,
     `## How to work`,
-    `1. Create and switch to a NEW branch \`${branch}\` off \`${baseBranch}\`. NEVER commit to \`${baseBranch}\` or any existing branch.`,
+    `1. You are in a fresh git worktree already checked out on a NEW branch \`${branch}\` (created off \`${baseBranch}\`). Do NOT create or switch branches. NEVER commit to \`${baseBranch}\` or any other branch.`,
     `2. Implement the ticket. Follow the repository's existing conventions and AGENTS.md/CLAUDE.md if present.`,
     `3. If the repo has a build or test script, run it and make it pass before committing.`,
     `4. Commit your work. Use the \`bas-merge-commit-messages\` skill for the commit/MR message (BAS ADR-6 standard).`,
