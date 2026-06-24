@@ -30,4 +30,10 @@ export const dashboardConfig = {
   agentRepos: parseEnvMap(process.env.AGENT_REPOS),
   // Base directory holding local repos. Defaults to ~/workspace (resolved server-side).
   workspaceDir: process.env.WORKSPACE_DIR ?? '',
+  // Map Jira project key -> staging base URL, e.g.
+  // STAGING_URLS="NBDE:https://staging.example.com,ERP:https://erp-stg.example.com".
+  // Missing key => the acceptance profile is not runnable for that project.
+  stagingUrls: parseEnvMap(process.env.STAGING_URLS),
+  // Optional Jira custom field id holding acceptance criteria; empty => read from description.
+  acceptanceCriteriaField: process.env.ACCEPTANCE_CRITERIA_FIELD ?? '',
 }
