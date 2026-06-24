@@ -3,6 +3,7 @@ import { env } from '@/lib/env'
 import { dashboardConfig } from '@/dashboard.config'
 import { Result, ok, unconfigured, failure } from '@/lib/result'
 import type { IssueDetail } from '@/lib/agent/prompt'
+import { extractCriteriaFromDescription, type AcceptanceDetail, type AdfDoc } from '@/lib/agent/acceptance-logic'
 
 export type Issue = {
   key: string
@@ -159,6 +160,63 @@ export async function getIssueDetail(key: string): Promise<Result<IssueDetail>> 
       description: flattenAdf(f.description),
       url: `${cfg.host}/browse/${issueKey}`,
     })
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'Jira request failed')
+  }
+}
+
+/** Pure mapping of a Jira issue payload into the acceptance-testing shape. */
+export function mapAcceptanceDetail(json: any, host: string, criteriaField: string): AcceptanceDetail {
+  const f = json.fields ?? {}
+  const key = json.key
+  const description = flattenAdf(f.description)
+  const fromField = criteriaField ? (typeof f[criteriaField] === 'string' ? f[criteriaField].trim() : flattenAdf(f[criteriaField])) : ''
+  const acceptanceCriteria = (fromField && fromField.trim()) || extractCriteriaFromDescription(description)
+  return {
+    key,
+    summary: f.summary ?? '',
+    description,
+    url: `${host}/browse/${key}`,
+    status: f.status?.name ?? '',
+    assignee: f.assignee?.accountId
+      ? { displayName: f.assignee.displayName ?? '', accountId: f.assignee.accountId }
+      : null,
+    acceptanceCriteria: acceptanceCriteria || null,
+  }
+}
+
+/** Fetch the fields the acceptance profile needs. */
+export async function getAcceptanceDetail(key: string): Promise<Result<AcceptanceDetail>> {
+  const cfg = env.jira()
+  if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
+  const field = dashboardConfig.acceptanceCriteriaField
+  const fields = ['summary', 'description', 'status', 'assignee', ...(field ? [field] : [])].join(',')
+  try {
+    const url = `${cfg.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`
+    const res = await fetch(url, { headers: { Authorization: basicAuth(cfg), Accept: 'application/json' } })
+    if (!res.ok) return failure(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    return ok(mapAcceptanceDetail(await res.json(), cfg.host, field))
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'Jira request failed')
+  }
+}
+
+/** Post an ADF comment to an issue. */
+export async function addComment(issueKey: string, body: AdfDoc): Promise<Result<{ key: string }>> {
+  const cfg = env.jira()
+  if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
+  try {
+    const res = await fetch(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
+      method: 'POST',
+      headers: { Authorization: basicAuth(cfg), Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    })
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 200)
+      const hint = res.status === 403 ? ' (token lacks Jira write permission)' : ''
+      return failure(`Jira ${res.status}${hint}: ${detail}`)
+    }
+    return ok({ key: issueKey })
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'Jira request failed')
   }
