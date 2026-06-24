@@ -232,6 +232,97 @@ function DispatchDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () =
   )
 }
 
+/**
+ * Pick which group's staging to acceptance-test this ticket against (auction/lease
+ * have separate staging environments), then dispatch a single acceptance agent.
+ */
+function AcceptanceDialog({ row, onClose, onDone }: { row: BoardRow; onClose: () => void; onDone: (msg: string) => void }) {
+  const [groups, setGroups] = useState<string[] | null>(null)
+  const [group, setGroup] = useState<string>('')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    fetch('/api/agent/groups')
+      .then((r) => r.json())
+      .then((j) => {
+        if (!alive) return
+        if (!j.ok) { setErr(j.message ?? 'Failed to load groups'); setGroups([]); return }
+        const gs: string[] = j.data.groups ?? []
+        setGroups(gs)
+        setGroup(gs[0] ?? '')
+      })
+      .catch(() => { if (alive) { setErr('Failed to load groups'); setGroups([]) } })
+    return () => { alive = false }
+  }, [])
+
+  const hasGroups = !!groups && groups.length > 0
+
+  async function run() {
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch('/api/agent/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: row.key, profile: 'acceptance', group }),
+      })
+      const j = await res.json()
+      if (j.ok) {
+        onDone(`Acceptance test dispatched for ${row.key} → see Agents page`)
+        onClose()
+      } else {
+        setErr(j.message ?? 'Dispatch failed')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
+      <div className="w-[26rem] max-w-[92vw] space-y-3 rounded-none border border-border bg-card p-4 font-mono text-sm">
+        <p className="text-foreground">Acceptance-test <span className="text-primary">{row.key}</span> on staging</p>
+        <p className="text-[11px] text-muted-foreground">
+          Verifies the staging deploy, browser-tests it, and comments the result on Jira.
+        </p>
+        {err && <p className="text-[11px] text-destructive">[ FAIL ] {err}</p>}
+        {groups === null ? (
+          <p className="text-[11px] text-muted-foreground">loading…</p>
+        ) : !hasGroups ? (
+          <p className="text-[11px] text-amber-500">No groups configured — set AGENT_REPOS.</p>
+        ) : (
+          <div className="space-y-1">
+            <p className="text-[11px] text-muted-foreground">Which group&apos;s staging?</p>
+            <div className="flex flex-wrap gap-1">
+              {groups.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGroup(g)}
+                  className={cn(
+                    'border px-2 py-1 text-xs',
+                    g === group ? 'border-primary text-primary' : 'border-border text-muted-foreground hover:bg-muted/40',
+                  )}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button size="sm" onClick={run} disabled={busy || !hasGroups || !group}>
+            {busy ? 'Dispatching…' : 'Test on staging'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BoardPanel() {
   const { data, loading } = usePoll<Board>('/api/board', 30_000)
   const [pending, setPending] = useState<Pending>(null)
@@ -241,6 +332,7 @@ export function BoardPanel() {
   const [selected, setSelected] = useState<string[]>([])
   const [detail, setDetail] = useState<BoardRow | null>(null)
   const [dispatch, setDispatch] = useState<BoardRow | null>(null)
+  const [acceptance, setAcceptance] = useState<BoardRow | null>(null)
 
   const confirm = (label: string, run: () => Promise<void>) => setPending({ label, run })
 
@@ -326,11 +418,7 @@ export function BoardPanel() {
                                   variant="ghost"
                                   title="Acceptance-test this ticket on staging (verifies the deploy, then browser-tests it; comments the result on Jira)"
                                   className="size-5 p-0 text-muted-foreground hover:text-primary"
-                                  onClick={() => confirm(`Acceptance-test ${row.key} on staging`, async () => {
-                                    const err = await post('/api/agent/start', { key: row.key, profile: 'acceptance' })
-                                    if (err) setError(err)
-                                    else setNotice(`Acceptance test dispatched for ${row.key} → see Agents page`)
-                                  })}
+                                  onClick={() => setAcceptance(row)}
                                 >
                                   <FlaskConical className="size-3" />
                                 </Button>
@@ -420,6 +508,13 @@ export function BoardPanel() {
                 row={dispatch}
                 onClose={() => setDispatch(null)}
                 onDone={(msg) => { setError(null); setNotice(msg) }}
+              />
+            )}
+            {acceptance && (
+              <AcceptanceDialog
+                row={acceptance}
+                onClose={() => setAcceptance(null)}
+                onDone={(m) => setNotice(m)}
               />
             )}
 

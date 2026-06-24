@@ -285,9 +285,10 @@ function finish(id: string, status: JobStatus, extra: Partial<JobMeta> = {}): vo
  */
 async function startAcceptanceJob(key: string, group?: string, app?: string): Promise<Result<{ id: string }>> {
   if (!group) return failure('group is required')
-  if (!app) return noRepoFailure(group)
+  const cwdApp = app ?? reposForGroup(group)[0]
+  if (!cwdApp) return noRepoFailure(group)
   const stagingUrl = dashboardConfig.stagingUrls[group]
-  const spec = resolveGroupRepo(group, app)
+  const spec = resolveGroupRepo(group, cwdApp)
   if (!spec) return noRepoFailure(group)
   const { repo: repoName } = parseRepoSpec(spec)
   const repoPath = join(workspaceDir(), repoName)
@@ -300,7 +301,7 @@ async function startAcceptanceJob(key: string, group?: string, app?: string): Pr
   const id = `${detail.key}-${Date.now()}`
   mkdirSync(JOBS_DIR, { recursive: true })
   const meta: JobMeta = {
-    id, key: detail.key, repo: repoName, app, group, branch: '', baseBranch: '',
+    id, key: detail.key, repo: repoName, app: cwdApp, group, branch: '', baseBranch: '',
     profile: 'acceptance', status: 'running', phase: 'readiness',
     startedAt: new Date().toISOString(), pid: 0,
   }

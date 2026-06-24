@@ -27,6 +27,12 @@ export async function POST(req: NextRequest) {
   if (!group) return NextResponse.json(failure('group is required'))
   if (!agentGroups().includes(group)) return NextResponse.json(failure(`Unknown group "${group}"`))
 
+  // Acceptance runs once per group (tests the group's staging), never fanned out per repo.
+  if (profile === 'acceptance') {
+    const r = await startJob(trimmedKey, 'acceptance', group)
+    return NextResponse.json(r.ok ? ok({ ids: [r.data.id] }) : failure(r.message))
+  }
+
   // A ticket may target several repos: dispatch one isolated job per selected app.
   // Empty apps => the whole group (every repo configured under it).
   const picked = (Array.isArray(body.apps) ? body.apps : body.app ? [body.app] : [])

@@ -181,6 +181,7 @@ export function MobileAgents() {
           {groups.map((g) => (
             <button
               key={g}
+              type="button"
               onClick={() => setGroup(g)}
               className={`border px-3 py-1 text-xs ${g === group ? 'border-primary text-primary' : 'border-border text-muted-foreground'}`}
             >

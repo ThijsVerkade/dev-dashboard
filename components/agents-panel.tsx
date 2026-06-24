@@ -245,6 +245,7 @@ export function AgentsPanel() {
             <select
               value={group}
               onChange={(e) => setGroup(e.target.value)}
+              aria-label="Target group"
               className="rounded-none border border-input bg-transparent px-2 font-mono text-sm"
             >
               {groups.map((g) => <option key={g} value={g}>{g}</option>)}
