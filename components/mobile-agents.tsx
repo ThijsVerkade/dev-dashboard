@@ -15,6 +15,7 @@ const STATUS_COLOR: Record<JobMeta['status'], string> = {
   done: 'text-primary',
   failed: 'text-destructive',
   canceled: 'text-muted-foreground',
+  blocked: 'text-yellow-600',
 }
 
 function timeOf(ts: string): string {

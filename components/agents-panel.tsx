@@ -19,6 +19,7 @@ const STATUS_CLASS: Record<JobMeta['status'], string> = {
   done: 'text-primary border-primary/40',
   failed: 'text-destructive border-destructive/40',
   canceled: 'text-muted-foreground border-border',
+  blocked: 'text-yellow-600 border-yellow-600/40',
 }
 
 function elapsed(fromIso: string, toIso?: string): string {

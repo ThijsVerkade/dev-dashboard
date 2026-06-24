@@ -14,19 +14,29 @@ import {
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { dashboardConfig } from '@/dashboard.config'
-import { getIssueDetail } from '@/lib/sources/jira'
+import { getIssueDetail, getAcceptanceDetail, addComment } from '@/lib/sources/jira'
 import { projectKeyOf, slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
 import { Result, ok, failure } from '@/lib/result'
+import { type AgentProfile } from '@/lib/agent/profiles'
+import {
+  buildAcceptancePrompt, parseVerdict, checkReadiness,
+  buildMissingInfoComment, buildResultComment, type AcceptanceDetail,
+} from '@/lib/agent/acceptance-logic'
+import { checkStagingDeploy } from '@/lib/agent/deploy-gate'
 
-export type JobStatus = 'running' | 'done' | 'failed' | 'canceled'
+export type JobStatus = 'running' | 'done' | 'failed' | 'canceled' | 'blocked'
 export type JobMeta = {
   id: string
   key: string
   repo: string
   branch: string
   baseBranch: string
+  profile: AgentProfile
   status: JobStatus
+  phase?: string
+  reason?: string
+  result?: 'pass' | 'fail'
   startedAt: string
   pid: number
 }
@@ -83,7 +93,8 @@ function reconcile(m: JobMeta): JobMeta {
 }
 
 /** Resolve repo, build the prompt from the ticket, spawn a detached headless agent. */
-export async function startJob(key: string): Promise<Result<{ id: string }>> {
+export async function startJob(key: string, profile: AgentProfile = 'implement'): Promise<Result<{ id: string }>> {
+  if (profile === 'acceptance') return startAcceptanceJob(key)
   const projectKey = projectKeyOf(key)
   const spec = dashboardConfig.agentRepos[projectKey]
   if (!spec)
@@ -116,6 +127,7 @@ export async function startJob(key: string): Promise<Result<{ id: string }>> {
       repo: repoName,
       branch,
       baseBranch,
+      profile: 'implement',
       status: 'running',
       startedAt: new Date().toISOString(),
       pid: child.pid ?? 0,
@@ -185,4 +197,103 @@ export function getJob(id: string): JobDetail | null {
   const events = normalizeEvents(parseTranscriptTail(log), 60)
   const mr = log.match(/https?:\/\/\S*?merge_requests\/\d+/)
   return { meta, events, mrUrl: mr ? mr[0] : null }
+}
+
+function setPhase(id: string, phase: string): void {
+  const m = readMeta(id)
+  if (m) { m.phase = phase; writeMeta(m) }
+}
+function finish(id: string, status: JobStatus, extra: Partial<JobMeta> = {}): void {
+  const m = readMeta(id)
+  if (m) { Object.assign(m, extra, { status }); writeMeta(m) }
+}
+
+/**
+ * Acceptance profile: verify readiness + staging deploy (in-process), then spawn a
+ * headless browser-testing agent and post the verdict to Jira. Gates run async after
+ * the job id is returned; the dashboard server must stay up for the run to complete.
+ */
+async function startAcceptanceJob(key: string): Promise<Result<{ id: string }>> {
+  const projectKey = projectKeyOf(key)
+  const stagingUrl = dashboardConfig.stagingUrls[projectKey]
+  const spec = dashboardConfig.agentRepos[projectKey]
+  if (!spec) return failure(`No repo mapped for project "${projectKey}". Set AGENT_REPOS.`)
+  const { repo: repoName } = parseRepoSpec(spec)
+  const repoPath = join(workspaceDir(), repoName)
+  if (!existsSync(join(repoPath, '.git'))) return failure(`Git repo not found at ${repoPath}`)
+
+  const detailRes = await getAcceptanceDetail(key)
+  if (!detailRes.ok) return detailRes
+  const detail = detailRes.data
+
+  const id = `${detail.key}-${Date.now()}`
+  mkdirSync(JOBS_DIR, { recursive: true })
+  const meta: JobMeta = {
+    id, key: detail.key, repo: repoName, branch: '', baseBranch: '',
+    profile: 'acceptance', status: 'running', phase: 'readiness',
+    startedAt: new Date().toISOString(), pid: 0,
+  }
+  writeMeta(meta)
+
+  // Run gates + agent without blocking the HTTP response.
+  void runAcceptance(id, repoPath, stagingUrl, detail).catch((e) => {
+    finish(id, 'failed', { reason: e instanceof Error ? e.message : 'acceptance run crashed' })
+  })
+  return ok({ id })
+}
+
+async function runAcceptance(
+  id: string,
+  repoPath: string,
+  stagingUrl: string | undefined,
+  detail: AcceptanceDetail,
+): Promise<void> {
+  // 1. Readiness
+  if (!stagingUrl) {
+    finish(id, 'blocked', { reason: `No staging URL for ${projectKeyOf(detail.key)} (set STAGING_URLS)` })
+    return
+  }
+  const missing = checkReadiness(detail)
+  if (missing.length > 0) {
+    await addComment(detail.key, buildMissingInfoComment(detail, missing))
+    finish(id, 'blocked', { reason: missing.join('; ') })
+    return
+  }
+
+  // 2. Deploy gate
+  setPhase(id, 'deploy')
+  const deploy = await checkStagingDeploy(detail.key)
+  if (!deploy.ok) {
+    await addComment(detail.key, buildMissingInfoComment(detail, [`cannot test yet: ${deploy.message}`]))
+    finish(id, 'blocked', { reason: deploy.message })
+    return
+  }
+
+  // 3. Browser test (headless agent)
+  setPhase(id, 'test')
+  const prompt = buildAcceptancePrompt(detail, { stagingUrl })
+  const out = openSync(logPath(id), 'a')
+  const child = spawn(
+    CLAUDE_BIN,
+    ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'],
+    { cwd: repoPath, detached: true, stdio: ['ignore', out, out] },
+  )
+  closeSync(out)
+  const started = readMeta(id)
+  if (started) { started.pid = child.pid ?? 0; writeMeta(started) }
+
+  child.on('exit', () => {
+    // 4. Report
+    let log = ''
+    try { log = readTail(logPath(id), TAIL_BYTES) } catch { /* no log */ }
+    const verdict = parseVerdict(log)
+    if (verdict.result === 'unknown') {
+      finish(id, 'failed', { reason: 'agent produced no ACCEPTANCE-RESULT verdict' })
+      return
+    }
+    void addComment(detail.key, buildResultComment(verdict))
+    finish(id, 'done', { phase: 'reported', result: verdict.result })
+  })
+  child.on('error', () => finish(id, 'failed', { reason: 'failed to spawn browser agent' }))
+  child.unref()
 }
