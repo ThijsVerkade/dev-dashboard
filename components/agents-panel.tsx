@@ -60,6 +60,7 @@ const KIND_CLASS: Record<string, string> = {
 function JobView({ id, token, onSelect }: { id: string; token: string | null; onSelect: (id: string) => void }) {
   const job = usePoll<JobDetail>(`/api/agent/jobs/${id}`, 3000)
   const [busy, setBusy] = useState(false)
+  const [cancelErr, setCancelErr] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const count = job.data?.ok ? job.data.data.events.length : 0
 
@@ -74,8 +75,10 @@ function JobView({ id, token, onSelect }: { id: string; token: string | null; on
 
   async function cancel() {
     setBusy(true)
+    setCancelErr(null)
     try {
-      await postJson(`/api/agent/jobs/${id}/cancel`, token)
+      const res = await postJson(`/api/agent/jobs/${id}/cancel`, token)
+      if (!res.ok) setCancelErr(res.message ?? 'Cancel failed')
     } finally {
       setBusy(false)
     }
@@ -137,6 +140,7 @@ function JobView({ id, token, onSelect }: { id: string; token: string | null; on
           {running && <span>elapsed {elapsed(meta.startedAt)}</span>}
           <span>{events.length} events</span>
         </div>
+        {cancelErr && <p className="font-mono text-[11px] text-destructive">{cancelErr}</p>}
         {mrUrl && (
           <a
             href={mrUrl}

@@ -92,8 +92,12 @@ Tailscale:
 - When unset, no PIN is required (default).
 
 Binding to `0.0.0.0` also exposes port 3000 on any other network the Mac
-joins; the PIN mitigates this. Leave the server on `npm run dev`
-(loopback-only) when you don't need phone access.
+joins; the PIN mitigates this — but note that the PIN only protects the
+mutating endpoints: on an untrusted network, read-only endpoints such as
+`/api/jira/my` and agent job logs/transcripts are readable by anyone who can
+reach the port, so prefer `start:lan`/`dev:lan` only on a trusted network or
+tailnet. Leave the server on `npm run dev` (loopback-only) when you don't
+need phone access.
 
 ## Notes & known limitations
 

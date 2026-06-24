@@ -60,14 +60,20 @@ function PinBar({ token, onSave, onClear }: {
 function MobileJobDetail({ id, token }: { id: string; token: string | null }) {
   const job = usePoll<JobDetail>(`/api/agent/jobs/${id}`, 3000)
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
   if (!job.data?.ok) return null
   const { meta, events, mrUrl } = job.data.data
   const running = meta.status === 'running'
 
   async function cancel() {
     setBusy(true)
+    setErr(null)
     try {
-      await fetch(`/api/agent/jobs/${id}/cancel`, { method: 'POST', headers: buildTriggerHeaders(token) })
+      const res = await fetch(`/api/agent/jobs/${id}/cancel`, { method: 'POST', headers: buildTriggerHeaders(token) })
+      const json = await res.json()
+      if (!json.ok) setErr(json.message ?? 'Cancel failed')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Cancel failed')
     } finally {
       setBusy(false)
     }
@@ -88,6 +94,7 @@ function MobileJobDetail({ id, token }: { id: string; token: string | null }) {
           </button>
         )}
       </div>
+      {err && <p className="font-mono text-xs text-destructive">{err}</p>}
       {mrUrl && (
         <a href={mrUrl} target="_blank" rel="noreferrer" className="block font-mono text-xs text-primary underline">
           → {mrUrl}
