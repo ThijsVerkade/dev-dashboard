@@ -30,10 +30,20 @@ function severityClass(msg: string): string {
   return 'text-primary'
 }
 
-// Repetitive health/readiness probes that bury real activity.
+// Repetitive infrastructure noise that buries real activity:
+// health/readiness probes (Apache-quoted, NestJS-unquoted, and common pollers)
+// plus NestJS LoggingInterceptor per-request object dumps (correlationId/controller/handler).
 function isNoise(msg: string): boolean {
-  return /"[A-Z]+ \/(health|healthz|readiness|ready|ping|status)\b/i.test(msg)
-    || /Go-http-client|ELB-HealthChecker|kube-probe/i.test(msg)
+  // Health / readiness probes
+  if (/"[A-Z]+ \/(health|healthz|readiness|ready|ping|status)\b/i.test(msg)) return true
+  if (/\b[A-Z]+ \/(health|healthz|readiness|ready|ping)\b/.test(msg)) return true
+  if (/Go-http-client|ELB-HealthChecker|kube-probe/i.test(msg)) return true
+  if (/HealthController|checkHealth/.test(msg)) return true
+  // NestJS LoggingInterceptor object-dump scaffolding
+  if (/^Object\(\d+\)\s*\{\s*$/.test(msg)) return true
+  if (/^\s*(correlationId|controller|handler):/.test(msg)) return true
+  if (/^\s*\}\s*$/.test(msg)) return true
+  return false
 }
 
 /** Owns a single service's SSE stream; renders nothing. Mount/unmount = open/close that one stream. */
