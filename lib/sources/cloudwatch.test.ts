@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { mapEvent, isMissingCreds, parseServiceName, serviceLabel } from './cloudwatch'
+import { mapEvent, isMissingCreds, parseServiceName, serviceLabel, buildServiceMap, logEnvironments } from './cloudwatch'
 
 test('mapEvent maps raw CloudWatch event', () => {
   expect(mapEvent({ eventId: 'e1', timestamp: 1718000000000, message: 'hello\n' })).toEqual({
@@ -29,4 +29,25 @@ test('serviceLabel maps known services and passes through unknown', () => {
   expect(serviceLabel('bff')).toBe('bff')
   expect(serviceLabel('api')).toBe('api')
   expect(serviceLabel('worker')).toBe('worker')
+})
+
+test('buildServiceMap groups application log groups by domain and label', () => {
+  const groups = [
+    '/aws/apprunner/auction-frontend-dev/abc/application',
+    '/aws/apprunner/auction-frontend-dev/abc/service',     // dropped: not /application
+    '/aws/apprunner/auction-erp-bff-dev/def/application',
+    '/aws/apprunner/lease-api-dev/ghi/application',
+  ]
+  expect(buildServiceMap(groups)).toEqual({
+    auction: {
+      fe: '/aws/apprunner/auction-frontend-dev/abc/application',
+      'bff-erp': '/aws/apprunner/auction-erp-bff-dev/def/application',
+    },
+    lease: { api: '/aws/apprunner/lease-api-dev/ghi/application' },
+  })
+})
+
+test('logEnvironments returns single dev when CW_ENV_PROFILES unset', () => {
+  // Tests run without CW_ENV_PROFILES -> single 'dev' fallback.
+  expect(logEnvironments()).toEqual(['dev'])
 })

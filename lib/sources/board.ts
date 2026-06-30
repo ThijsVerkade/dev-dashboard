@@ -206,7 +206,7 @@ export async function getBoard(): Promise<Result<Board>> {
   const canWrite = await getCanWrite()
   return ok(assembleBoard({
     issues: sprint.data, projects, mrDetails,
-    logGroups: dashboardConfig.cloudwatchLogGroups, canWrite,
+    logGroups: {}, canWrite,
     stagingJobName: dashboardConfig.stagingJobName,
   }))
 }

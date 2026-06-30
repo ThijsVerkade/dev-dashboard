@@ -4,7 +4,7 @@ import {
   DescribeLogGroupsCommand,
   FilterLogEventsCommand,
 } from '@aws-sdk/client-cloudwatch-logs'
-import { env } from '@/lib/env'
+import { fromIni } from '@aws-sdk/credential-provider-ini'
 import { dashboardConfig } from '@/dashboard.config'
 import { Result, ok, unconfigured, failure } from '@/lib/result'
 
@@ -48,20 +48,51 @@ export function serviceLabel(rawService: string): string {
   return SERVICE_LABELS[rawService] ?? rawService
 }
 
-function client() {
-  return new CloudWatchLogsClient({ region: env.awsRegion() })
+function client(env: string) {
+  const profile = dashboardConfig.cloudwatchEnvProfiles[env]
+  return new CloudWatchLogsClient({
+    region: dashboardConfig.cloudwatchRegion,
+    credentials: profile ? fromIni({ profile }) : undefined,
+  })
 }
 
-export async function getLogGroups(): Promise<Result<string[]>> {
+export type ServiceMap = Record<string, Record<string, string>>
+
+/** Pure: build domain -> { label -> logGroupName } from raw `/application` group names. */
+export function buildServiceMap(groupNames: string[]): ServiceMap {
+  const map: ServiceMap = {}
+  for (const name of groupNames) {
+    if (!name.endsWith('/application')) continue
+    const serviceName = name.slice('/aws/apprunner/'.length).split('/')[0]
+    const { domain, service } = parseServiceName(serviceName)
+    if (!domain) continue
+    ;(map[domain] ??= {})[serviceLabel(service)] = name
+  }
+  return map
+}
+
+/** Environment names available for log viewing (config keys, or single 'dev' fallback). */
+export function logEnvironments(): string[] {
+  const keys = Object.keys(dashboardConfig.cloudwatchEnvProfiles)
+  return keys.length > 0 ? keys : ['dev']
+}
+
+export async function getServiceMap(env: string): Promise<Result<ServiceMap>> {
   try {
-    const configured = Object.values(dashboardConfig.cloudwatchLogGroups)
-    if (configured.length > 0)
-      return ok(configured)
-    const out = await client().send(new DescribeLogGroupsCommand({ limit: 50 }))
-    return ok((out.logGroups ?? []).map((g) => g.logGroupName!).filter(Boolean))
+    const c = client(env)
+    const names: string[] = []
+    let nextToken: string | undefined
+    do {
+      const out = await c.send(
+        new DescribeLogGroupsCommand({ logGroupNamePrefix: '/aws/apprunner/', nextToken }),
+      )
+      for (const g of out.logGroups ?? []) if (g.logGroupName) names.push(g.logGroupName)
+      nextToken = out.nextToken
+    } while (nextToken)
+    return ok(buildServiceMap(names))
   } catch (e) {
     if (isMissingCreds(e))
-      return unconfigured('AWS credentials not found. Configure ~/.aws or AWS_PROFILE/AWS_REGION.')
+      return unconfigured(`AWS credentials for "${env}" not found. Check the profile / re-auth (SSO).`)
     return failure(e instanceof Error ? e.message : 'CloudWatch request failed')
   }
 }
@@ -69,15 +100,16 @@ export async function getLogGroups(): Promise<Result<string[]>> {
 export async function getEvents(
   logGroup: string,
   startTime: number,
+  env: string,
 ): Promise<Result<LogEvent[]>> {
   try {
-    const out = await client().send(
+    const out = await client(env).send(
       new FilterLogEventsCommand({ logGroupName: logGroup, startTime, limit: 200 }),
     )
     return ok((out.events ?? []).map(mapEvent))
   } catch (e) {
     if (isMissingCreds(e))
-      return unconfigured('AWS credentials not found. Configure ~/.aws or AWS_PROFILE/AWS_REGION.')
+      return unconfigured(`AWS credentials for "${env}" not found. Check the profile / re-auth (SSO).`)
     return failure(e instanceof Error ? e.message : 'CloudWatch request failed')
   }
 }

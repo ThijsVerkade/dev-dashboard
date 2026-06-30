@@ -37,7 +37,7 @@ export async function checkStagingDeploy(key: string): Promise<Result<{ project:
 
     if (row.stagingJob?.status === 'success') {
       if (!logGroup) return ok({ project }) // deploy green; no log group configured to verify
-      const events = await getEvents(logGroup, Date.now() - 5 * 60 * 1000)
+      const events = await getEvents(logGroup, Date.now() - 5 * 60 * 1000, 'stg')
       if (!events.ok) return events
       if (!isCleanStartup(events.data))
         return failure('deploy:staging is green but the staging logs show errors or no startup')

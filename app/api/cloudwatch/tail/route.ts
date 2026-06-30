@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   const group = req.nextUrl.searchParams.get('group') ?? ''
+  const env = req.nextUrl.searchParams.get('env') ?? 'dev'
   if (!group) return new Response('group query param required', { status: 400 })
   const encoder = new TextEncoder()
 
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
       }
 
       for (let i = 0; i < 600 && !stop; i++) {
-        const r = await getEvents(group, start)
+        const r = await getEvents(group, start, env)
         if (!r.ok) { send('error', JSON.stringify(r)); break }
         let maxTs = start
         for (const ev of r.data) {
