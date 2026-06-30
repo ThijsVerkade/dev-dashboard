@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { mergeLine, type LogLine } from '@/lib/log-merge'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -46,6 +46,25 @@ function isNoise(msg: string): boolean {
   return false
 }
 
+// Wrap case-insensitive matches of `needle` (already lowercased) in a highlight mark.
+function highlight(text: string, needle: string) {
+  if (!needle) return text
+  const lower = text.toLowerCase()
+  const parts: Array<string | ReactElement> = []
+  let i = 0
+  let idx = lower.indexOf(needle)
+  while (idx !== -1) {
+    if (idx > i) parts.push(text.slice(i, idx))
+    parts.push(
+      <mark key={idx} className="rounded-none bg-amber-400/30 text-amber-100">{text.slice(idx, idx + needle.length)}</mark>,
+    )
+    i = idx + needle.length
+    idx = lower.indexOf(needle, i)
+  }
+  if (i < text.length) parts.push(text.slice(i))
+  return parts
+}
+
 /** Owns a single service's SSE stream; renders nothing. Mount/unmount = open/close that one stream. */
 function ServiceStream({
   env, group, label, onLine,
@@ -76,8 +95,12 @@ export function LogConsole({ env, services }: { env: string; services: { label: 
   const [lines, setLines] = useState<LogLine[]>([])
   const [filter, setFilter] = useState('')
   const [hideNoise, setHideNoise] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
-  const addLine = useCallback((line: LogLine) => setLines((buf) => mergeLine(buf, line, CAP)), [])
+  const addLine = useCallback((line: LogLine) => {
+    setLines((buf) => mergeLine(buf, line, CAP))
+    setUpdatedAt(Date.now())
+  }, [])
 
   // Only lines for currently-enabled services are shown, so toggling a chip off
   // both stops its stream (the ServiceStream unmounts) and removes its lines here.
@@ -103,7 +126,7 @@ export function LogConsole({ env, services }: { env: string; services: { label: 
         <Input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="filter logs…"
+          placeholder="search logs…"
           className="h-8 w-full max-w-xs rounded-none font-mono text-xs"
         />
         <button
@@ -117,6 +140,7 @@ export function LogConsole({ env, services }: { env: string; services: { label: 
           {hideNoise ? '☑' : '☐'} hide health checks
         </button>
         <span className="ml-auto select-none font-mono text-[11px] text-primary/40">
+          {updatedAt ? `updated ${new Date(updatedAt).toTimeString().slice(0, 8)} · ` : ''}
           {visible.length}{visible.length !== lines.length ? ` / ${lines.length}` : ''} lines
         </span>
       </div>
@@ -132,7 +156,7 @@ export function LogConsole({ env, services }: { env: string; services: { label: 
             <div key={`${l.service}:${l.id}`} className="flex gap-2 whitespace-pre-wrap break-all py-0.5">
               <span className="select-none text-primary/40" aria-hidden>{new Date(l.timestamp).toISOString().slice(11, 19)}</span>
               <span className={cn('select-none', tagColor(l.service))}>[{l.service}]</span>
-              <span className={cn('flex-1', severityClass(l.message))}>{l.message}</span>
+              <span className={cn('flex-1', severityClass(l.message))}>{highlight(l.message, needle)}</span>
             </div>
           ))
         )}
