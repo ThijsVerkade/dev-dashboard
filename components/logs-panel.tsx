@@ -91,7 +91,7 @@ export function LogsPanel() {
           )}
 
           {effectiveDomain
-            ? <LogConsole env={effectiveEnv} services={services} />
+            ? <LogConsole key={`${effectiveEnv}:${effectiveDomain}`} env={effectiveEnv} services={services} />
             : <p className="font-mono text-sm text-muted-foreground">select a domain to tail its services…</p>}
         </div>
       )}
