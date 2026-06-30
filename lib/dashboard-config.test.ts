@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { agentGroups, reposForGroup, resolveGroupRepo } from '@/dashboard.config'
+import { agentGroups, reposForGroup, resolveGroupRepo, parseEnvMapEq } from '@/dashboard.config'
 
 // Shorthand (no ":value") and explicit-override entries coexist.
 const MAP = {
@@ -32,4 +32,19 @@ test('resolveGroupRepo returns the spec for a group+app, else undefined', () => 
   expect(resolveGroupRepo('lease', 'fe-bff', MAP)).toBe('lease/custom-bff@develop')
   expect(resolveGroupRepo('auction', 'ghost', MAP)).toBeUndefined()
   expect(resolveGroupRepo('ghost', 'api', MAP)).toBeUndefined()
+})
+
+test('parseEnvMapEq parses key=value pairs', () => {
+  expect(parseEnvMapEq('dev=auction-dev,stg=auction-stg')).toEqual({
+    dev: 'auction-dev',
+    stg: 'auction-stg',
+  })
+})
+
+test('parseEnvMapEq keeps colons inside the value', () => {
+  expect(parseEnvMapEq('prod=role:arn:partition')).toEqual({ prod: 'role:arn:partition' })
+})
+
+test('parseEnvMapEq returns empty for undefined', () => {
+  expect(parseEnvMapEq(undefined)).toEqual({})
 })

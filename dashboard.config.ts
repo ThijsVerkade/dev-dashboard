@@ -23,6 +23,20 @@ const parseEnvMap = (raw: string | undefined): Record<string, string> =>
       .filter((e): e is [string, string] => !!e),
   )
 
+/** Parse "KEY=value,KEY2=value2" splitting on the first "=" (values may contain ":"). */
+export const parseEnvMapEq = (raw: string | undefined): Record<string, string> =>
+  Object.fromEntries(
+    parseEnvList(raw)
+      .map((entry): [string, string] | null => {
+        const eq = entry.indexOf('=')
+        if (eq === -1) return null
+        const key = entry.slice(0, eq).trim()
+        const value = entry.slice(eq + 1).trim()
+        return key && value ? [key, value] : null
+      })
+      .filter((e): e is [string, string] => !!e),
+  )
+
 /** Group name of an AGENT_REPOS key, e.g. groupOf('auction/api') -> 'auction'. */
 function groupOf(key: string): string {
   const i = key.indexOf('/')
@@ -69,9 +83,6 @@ export const dashboardConfig = {
   gitlabProjects: parseEnvList(process.env.GITLAB_PROJECTS),
   gitlabGroups: parseEnvList(process.env.GITLAB_GROUPS),
   gitlabExcludes: parseEnvList(process.env.GITLAB_EXCLUDE),
-  // Map "<gitlab project path>:<environment name>" -> CloudWatch log group.
-  // e.g. { 'mygroup/svc:staging': '/aws/ecs/svc-stg' }. Missing key => env not clickable.
-  cloudwatchLogGroups: {} as Record<string, string>,
   jiraProjects: parseEnvList(process.env.JIRA_PROJECTS),
   // Name of the manual GitLab job that deploys staging (played from the board).
   stagingJobName: process.env.GITLAB_STAGING_JOB ?? 'deploy:staging',
@@ -89,4 +100,8 @@ export const dashboardConfig = {
   stagingUrls: parseEnvMap(process.env.STAGING_URLS),
   // Optional Jira custom field id holding acceptance criteria; empty => read from description.
   acceptanceCriteriaField: process.env.ACCEPTANCE_CRITERIA_FIELD ?? '',
+  // env name -> AWS named profile, e.g. CW_ENV_PROFILES="dev=auction-dev,stg=auction-stg,prod=auction-prod".
+  cloudwatchEnvProfiles: parseEnvMapEq(process.env.CW_ENV_PROFILES),
+  // CloudWatch region for App Runner log discovery/tail.
+  cloudwatchRegion: process.env.CW_REGION ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION,
 }
