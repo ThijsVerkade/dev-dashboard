@@ -72,6 +72,17 @@ export function LogsPanel() {
             </Select>
           </div>
 
+          {domainsRes.data && !domainsRes.data.ok && (
+            <p className={cn('font-mono text-sm', domainsRes.data.reason === 'unconfigured' ? 'text-amber-500' : 'text-destructive')}>
+              {domainsRes.data.reason === 'unconfigured' ? '[ ---- ] not configured: ' : '[ FAIL ] error: '}
+              {domainsRes.data.message}
+            </p>
+          )}
+
+          {domainsRes.data?.ok && domainNames.length === 0 && (
+            <p className="font-mono text-sm text-muted-foreground">no App Runner services discovered in {effectiveEnv}.</p>
+          )}
+
           {effectiveDomain && (
             <div className="flex flex-wrap gap-2">
               {allLabels.map((label) => (
