@@ -23,6 +23,31 @@ export function isMissingCreds(err: unknown): boolean {
   return name === 'CredentialsProviderError' || name === 'CredentialsError'
 }
 
+const ENV_TOKENS = ['dev', 'stg', 'prod'] as const
+
+/** Parse an App Runner service name "<domain>-<service>-<env>". */
+export function parseServiceName(serviceName: string): { domain: string; service: string; env?: string } {
+  const parts = serviceName.split('-')
+  const last = parts[parts.length - 1]
+  const env = (ENV_TOKENS as readonly string[]).includes(last) ? last : undefined
+  const core = env ? parts.slice(0, -1) : parts
+  const [domain, ...rest] = core
+  return { domain: domain ?? '', service: rest.join('-'), env }
+}
+
+const SERVICE_LABELS: Record<string, string> = {
+  frontend: 'fe',
+  'erp-frontend': 'fe-erp',
+  bff: 'bff',
+  'erp-bff': 'bff-erp',
+  api: 'api',
+}
+
+/** Friendly label for a raw service, passing unknown values through unchanged. */
+export function serviceLabel(rawService: string): string {
+  return SERVICE_LABELS[rawService] ?? rawService
+}
+
 function client() {
   return new CloudWatchLogsClient({ region: env.awsRegion() })
 }
