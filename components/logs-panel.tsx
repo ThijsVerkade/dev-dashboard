@@ -1,5 +1,5 @@
 'use client'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoll } from '@/lib/use-poll'
 import { PanelShell } from './panel-shell'
 import { LogConsole } from './log-console'
@@ -22,10 +22,36 @@ export function LogsPanel() {
   const [env, setEnv] = useState<string>(envParam ?? '')
   const effectiveEnv = env || (envs.data?.ok ? envs.data.data[0] ?? '' : '')
 
+  // Poll fairly often so logs reappear promptly once a re-auth completes.
   const domainsRes = usePoll<ServiceMap>(
     effectiveEnv ? `/api/cloudwatch/domains?env=${encodeURIComponent(effectiveEnv)}` : '/api/cloudwatch/domains',
-    60000,
+    10000,
   )
+  // Missing AWS creds (e.g. an expired SSO token) surface as "unconfigured".
+  const authNeeded = !!(domainsRes.data && !domainsRes.data.ok && domainsRes.data.reason === 'unconfigured')
+
+  // Local-only: ask the server to run `aws sso login` (opens the browser).
+  const [loginMsg, setLoginMsg] = useState<string | null>(null)
+  const attempted = useRef<Set<string>>(new Set())
+  const triggerLogin = useCallback(async (targetEnv: string) => {
+    if (!targetEnv) return
+    setLoginMsg('Opening AWS SSO login in your browser — approve it to continue…')
+    try {
+      const res = await fetch(`/api/cloudwatch/login?env=${encodeURIComponent(targetEnv)}`, { method: 'POST' })
+      const json = (await res.json()) as { ok: boolean; message?: string }
+      if (!json.ok) setLoginMsg(json.message ?? 'Could not start AWS SSO login.')
+    } catch {
+      setLoginMsg('Could not reach the login endpoint.')
+    }
+  }, [])
+
+  // Auto-fire the login once per env the first time its creds come back missing.
+  useEffect(() => {
+    if (authNeeded && effectiveEnv && !attempted.current.has(effectiveEnv)) {
+      attempted.current.add(effectiveEnv)
+      triggerLogin(effectiveEnv)
+    }
+  }, [authNeeded, effectiveEnv, triggerLogin])
 
   const [domain, setDomain] = useState<string>(domainParam ?? '')
   const [disabled, setDisabled] = useState<Set<string>>(new Set())
@@ -73,10 +99,24 @@ export function LogsPanel() {
           </div>
 
           {domainsRes.data && !domainsRes.data.ok && (
-            <p className={cn('font-mono text-sm', domainsRes.data.reason === 'unconfigured' ? 'text-amber-500' : 'text-destructive')}>
-              {domainsRes.data.reason === 'unconfigured' ? '[ ---- ] not configured: ' : '[ FAIL ] error: '}
-              {domainsRes.data.message}
-            </p>
+            <div className="space-y-2">
+              <p className={cn('font-mono text-sm', domainsRes.data.reason === 'unconfigured' ? 'text-amber-500' : 'text-destructive')}>
+                {domainsRes.data.reason === 'unconfigured' ? '[ ---- ] not configured: ' : '[ FAIL ] error: '}
+                {domainsRes.data.message}
+              </p>
+              {domainsRes.data.reason === 'unconfigured' && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => triggerLogin(effectiveEnv)}
+                    className="h-8 shrink-0 rounded-none border border-primary/40 px-2 font-mono text-[11px] text-primary hover:bg-primary/10"
+                  >
+                    ⟳ re-authenticate (AWS SSO)
+                  </button>
+                  {loginMsg && <span className="font-mono text-[11px] text-muted-foreground">{loginMsg}</span>}
+                </div>
+              )}
+            </div>
           )}
 
           {domainsRes.data?.ok && domainNames.length === 0 && (
