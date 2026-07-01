@@ -11,9 +11,9 @@ import {
   fstatSync,
   closeSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { dashboardConfig, resolveGroupRepo, reposForGroup } from '@/dashboard.config'
+import { installRoot } from '@/lib/setup/repos'
 import { getIssueDetail, getAcceptanceDetail, addComment } from '@/lib/sources/jira'
 import { slugify, buildAgentPrompt, parseRepoSpec } from '@/lib/agent/prompt'
 import { parseTranscriptTail, normalizeEvents, type LiveEvent } from '@/lib/sources/claude-live'
@@ -52,7 +52,6 @@ const JOBS_DIR = join(process.cwd(), '.agent-jobs')
 const CLAUDE_BIN = process.env.CLAUDE_BIN || 'claude'
 const TAIL_BYTES = 256 * 1024
 
-const workspaceDir = () => dashboardConfig.workspaceDir || join(homedir(), 'workspace')
 const metaPath = (id: string) => join(JOBS_DIR, `${id}.json`)
 const logPath = (id: string) => join(JOBS_DIR, `${id}.log`)
 
@@ -164,7 +163,7 @@ export async function startJob(
   if (!spec) return noRepoFailure(group)
 
   const { repo: repoName, baseBranch } = parseRepoSpec(spec)
-  const repoPath = join(workspaceDir(), repoName)
+  const repoPath = join(installRoot(), repoName)
   if (!existsSync(join(repoPath, '.git'))) return failure(`Git repo not found at ${repoPath}`)
 
   const detail = await getIssueDetail(key)
@@ -291,7 +290,7 @@ async function startAcceptanceJob(key: string, group?: string, app?: string): Pr
   const spec = resolveGroupRepo(group, cwdApp)
   if (!spec) return noRepoFailure(group)
   const { repo: repoName } = parseRepoSpec(spec)
-  const repoPath = join(workspaceDir(), repoName)
+  const repoPath = join(installRoot(), repoName)
   if (!existsSync(join(repoPath, '.git'))) return failure(`Git repo not found at ${repoPath}`)
 
   const detailRes = await getAcceptanceDetail(key)
