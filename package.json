@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "aws:login": "bash scripts/ensure-sso.sh --force",
-    "predev": "bash scripts/ensure-sso.sh",
+    "setup": "tsx scripts/setup-repos.ts",
+    "predev": "bash scripts/ensure-sso.sh && tsx scripts/setup-repos.ts --check",
     "dev": "next dev",
-    "predev:lan": "bash scripts/ensure-sso.sh",
+    "predev:lan": "bash scripts/ensure-sso.sh && tsx scripts/setup-repos.ts --check",
     "dev:lan": "next dev -H 0.0.0.0",
     "build": "next build",
     "start": "next start",
@@ -44,6 +45,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
+    "tsx": "^4.22.4",
     "typescript": "^5",
     "vitest": "^4.1.9"
   }
