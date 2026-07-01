@@ -2,8 +2,10 @@ import { expect, test } from 'vitest'
 import {
   matchMr, pipelineForSha, computeReadyToMerge, latestPerEnv, envOnThisTicket,
   suggestNextTag, resolveLogGroup, findStagingJob, isPlayableStagingJob, assembleBoard,
+  matchedProjectNames,
 } from './board'
 import { getBoard } from './board'
+import type { Issue } from './jira'
 import type { MergeRequest, Deployment, Tag, Pipeline, Job } from './gitlab'
 
 const mr = (over: Partial<MergeRequest> = {}): MergeRequest => ({
@@ -101,6 +103,18 @@ test('assembleBoard groups rows by status and correlates a ticket', () => {
   expect(row.suggestedTag).toBe('v1.0.1')
   // PROJ-9 has no MR
   expect(board.columns[1].rows[0].mr).toBeUndefined()
+})
+
+test('matchedProjectNames returns only projects with a sprint-matched MR (deduped)', () => {
+  const issues = [{ key: 'PROJ-1' }, { key: 'PROJ-2' }, { key: 'PROJ-9' }] as unknown as Issue[]
+  const mrs = [
+    mr({ iid: 1, sourceBranch: 'feature/PROJ-1-x', project: 'g/a' }),
+    mr({ iid: 2, sourceBranch: 'feature/PROJ-2-y', project: 'g/b' }),
+    mr({ iid: 3, sourceBranch: 'feature/PROJ-1-z', project: 'g/a' }), // same project, second hit
+    mr({ iid: 4, sourceBranch: 'chore/unrelated', project: 'g/c' }),  // matches no issue
+  ]
+  // g/a and g/b have matches; g/c does not; PROJ-9 has no MR at all.
+  expect(matchedProjectNames(issues, mrs).sort()).toEqual(['g/a', 'g/b'])
 })
 
 test('getBoard reports unconfigured when Jira env missing', async () => {

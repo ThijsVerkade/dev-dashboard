@@ -115,7 +115,16 @@ function client() {
   return new Gitlab({ host: cfg.host, token: cfg.token })
 }
 
+// Project discovery paginates over whole GitLab groups and rarely changes, so
+// cache it briefly. This also dedupes the two discovery call sites within a
+// single board load (getDiscoveredProjects + getPipelines).
+const DISCOVER_TTL_MS = 5 * 60_000
+let discoverCache: { value: string[]; expires: number } | null = null
+
 async function discoverProjects(api: ReturnType<typeof client> & {}): Promise<string[]> {
+  const now = Date.now()
+  if (discoverCache && discoverCache.expires > now) return discoverCache.value
+
   const explicit = [...dashboardConfig.gitlabProjects]
 
   const groupResults = await Promise.all(
@@ -131,7 +140,9 @@ async function discoverProjects(api: ReturnType<typeof client> & {}): Promise<st
   )
 
   const all = [...new Set([...explicit, ...groupResults.flat()])]
-  return excludeProjects(all, dashboardConfig.gitlabExcludes)
+  const result = excludeProjects(all, dashboardConfig.gitlabExcludes)
+  discoverCache = { value: result, expires: now + DISCOVER_TTL_MS }
+  return result
 }
 
 export async function getPipelines(): Promise<Result<Pipeline[]>> {
@@ -155,6 +166,20 @@ export async function getPipelines(): Promise<Result<Pipeline[]>> {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 60)
     return ok(all)
+  } catch (e) {
+    return failure(e instanceof Error ? e.message : 'GitLab request failed')
+  }
+}
+
+// Recent pipelines for a single project. The board uses this to fetch pipelines
+// only for sprint-matched projects (instead of every discovered project). perPage
+// is generous enough that a matched MR's head-sha pipeline is present.
+export async function getProjectPipelines(project: string): Promise<Result<Pipeline[]>> {
+  const api = client()
+  if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
+  try {
+    const raw = await api.Pipelines.all(project, { perPage: 20, maxPages: 1 })
+    return ok(raw.map((p: any) => mapPipeline(p, project)))
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'GitLab request failed')
   }

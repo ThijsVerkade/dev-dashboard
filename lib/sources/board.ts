@@ -2,7 +2,7 @@ import 'server-only'
 import { getActiveSprint } from './jira'
 import {
   getDiscoveredProjects, getMergeRequests, getDeployments, getTags,
-  getMrApprovals, getCanWrite, getJobs, getPipelines,
+  getMrApprovals, getCanWrite, getJobs, getProjectPipelines,
 } from './gitlab'
 import { dashboardConfig } from '@/dashboard.config'
 import { ok, type Result } from '@/lib/result'
@@ -42,6 +42,18 @@ export function matchMr(key: string, mrs: MergeRequest[]): MergeRequest | undefi
   if (hits.length === 0) return undefined
   // Prefer an opened MR; otherwise the first (lists are newest-first).
   return hits.find((m) => m.state === 'opened') ?? hits[0]
+}
+
+/** Distinct project paths that own an MR matched to a sprint ticket. Only these
+ *  projects need heavy data (deployments/tags/pipelines) fetched — every other
+ *  discovered project would have its heavy data thrown away by assembleBoard. */
+export function matchedProjectNames(issues: Issue[], allMrs: MergeRequest[]): string[] {
+  const names = new Set<string>()
+  for (const issue of issues) {
+    const m = matchMr(issue.key, allMrs)
+    if (m) names.add(m.project)
+  }
+  return [...names]
 }
 
 export function pipelineForSha(sha: string, pipelines: Pipeline[]): Pipeline | undefined {
@@ -161,25 +173,48 @@ export async function getBoard(): Promise<Result<Board>> {
   const projectsRes = await getDiscoveredProjects()
   if (!projectsRes.ok) return projectsRes
 
-  const pipelinesRes = await getPipelines()
-  const allPipelines = pipelinesRes.ok ? pipelinesRes.data : []
-
-  // Per project: MRs, deployments, tags. Failures degrade to empty for that project.
-  const projects: ProjectData[] = await Promise.all(
+  // MRs for every project — needed to match sprint tickets to branches. Failures
+  // degrade to empty for that project.
+  const mrsByProject = await Promise.all(
     projectsRes.data.map(async (project) => {
-      const [mrs, deployments, tags] = await Promise.all([getMergeRequests(project), getDeployments(project), getTags(project)])
-      return {
-        project,
-        mrs: mrs.ok ? mrs.data : [],
-        pipelines: allPipelines.filter((p) => p.project === project),
-        deployments: deployments.ok ? deployments.data : [],
-        tags: tags.ok ? tags.data : [],
-      }
+      const mrs = await getMergeRequests(project)
+      return { project, mrs: mrs.ok ? mrs.data : [] }
     }),
   )
+  const allMrs = mrsByProject.flatMap((p) => p.mrs)
+
+  // Heavy data (deployments/tags/pipelines) is only ever read by assembleBoard for
+  // projects that own a matched MR, so fetch it for those projects alone — not for
+  // every repo in the discovered groups. This is the main cost reduction.
+  const heavyNames = new Set(matchedProjectNames(sprint.data, allMrs))
+  const heavyEntries = await Promise.all(
+    [...heavyNames].map(async (project) => {
+      const [deployments, tags, pipelines] = await Promise.all([
+        getDeployments(project), getTags(project), getProjectPipelines(project),
+      ])
+      return [project, {
+        deployments: deployments.ok ? deployments.data : [],
+        tags: tags.ok ? tags.data : [],
+        pipelines: pipelines.ok ? pipelines.data : [],
+      }] as const
+    }),
+  )
+  const heavyByProject = new Map(heavyEntries)
+
+  // Keep MRs for all projects (matching in assembleBoard stays identical); attach
+  // heavy data only where we fetched it (empty elsewhere — never read anyway).
+  const projects: ProjectData[] = mrsByProject.map(({ project, mrs }) => {
+    const heavy = heavyByProject.get(project)
+    return {
+      project,
+      mrs,
+      pipelines: heavy?.pipelines ?? [],
+      deployments: heavy?.deployments ?? [],
+      tags: heavy?.tags ?? [],
+    }
+  })
 
   // For only the MRs matched to a sprint ticket, fetch approvals + staging job (bounded by sprint size).
-  const allMrs = projects.flatMap((p) => p.mrs)
   const matched = sprint.data
     .map((issue) => matchMr(issue.key, allMrs))
     .filter((m): m is NonNullable<typeof m> => Boolean(m))
