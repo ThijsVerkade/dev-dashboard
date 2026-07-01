@@ -24,6 +24,10 @@ export type SetupStatus = {
   root: string
   /** GitLab host for the token form / create-token link. */
   host: string
+  /** JIRA_HOST + JIRA_EMAIL + JIRA_TOKEN all present. */
+  jiraConfigured: boolean
+  /** Jira host prefilled in the setup form (may be empty). */
+  jiraHost: string
   repos: RepoStatus[]
 }
 
@@ -76,6 +80,14 @@ export function resolveGitlab(): { host: string; token: string } | null {
   return host && token ? { host, token } : null
 }
 
+/** Jira creds from env, or null when any of host/email/token is unset. Mirrors env.jira() without 'server-only'. */
+export function resolveJira(): { host: string; email: string; token: string } | null {
+  const host = process.env.JIRA_HOST
+  const email = process.env.JIRA_EMAIL
+  const token = process.env.JIRA_TOKEN
+  return host && email && token ? { host, email, token } : null
+}
+
 /** Absolute install root: WORKSPACE_DIR override, else <cwd>/repos. */
 export function installRoot(): string {
   return dashboardConfig.workspaceDir || join(process.cwd(), 'repos')
@@ -92,7 +104,14 @@ export function getStatus(): SetupStatus {
     const path = join(root, e.repoName)
     return { ...e, path, state: classify(path) }
   })
-  return { configured: !!resolveGitlab(), root, host: dashboardConfig.gitlabHost, repos }
+  return {
+    configured: !!resolveGitlab(),
+    root,
+    host: dashboardConfig.gitlabHost,
+    jiraConfigured: !!resolveJira(),
+    jiraHost: dashboardConfig.jiraHost,
+    repos,
+  }
 }
 
 /** Which repos a clone request targets: one named repo, or all currently missing. */

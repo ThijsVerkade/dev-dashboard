@@ -41,18 +41,22 @@ export function validateGitlabToken(host: string, token: string, repoName: strin
   }
 }
 
-/** Write GITLAB_HOST/GITLAB_TOKEN to .env.local and apply them to this process's env immediately. */
-export function persistGitlabCreds(host: string, token: string): Result<null> {
+/** Upsert env vars into .env.local and apply them to this process's env immediately. */
+export function persistEnvVars(updates: Record<string, string>): Result<null> {
   const path = join(process.cwd(), '.env.local')
   try {
     const existing = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    writeFileSync(path, upsertEnv(existing, { GITLAB_HOST: host, GITLAB_TOKEN: token }))
-    process.env.GITLAB_HOST = host
-    process.env.GITLAB_TOKEN = token
+    writeFileSync(path, upsertEnv(existing, updates))
+    for (const [k, v] of Object.entries(updates)) process.env[k] = v
     return ok(null)
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'Failed to write .env.local')
   }
+}
+
+/** Write GITLAB_HOST/GITLAB_TOKEN to .env.local and apply them to this process's env immediately. */
+export function persistGitlabCreds(host: string, token: string): Result<null> {
+  return persistEnvVars({ GITLAB_HOST: host, GITLAB_TOKEN: token })
 }
 
 /** Validate a token against the first configured repo (if any), then persist it. */

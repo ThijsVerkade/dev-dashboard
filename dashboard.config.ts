@@ -88,6 +88,8 @@ export const dashboardConfig = {
   stagingJobName: process.env.GITLAB_STAGING_JOB ?? 'deploy:staging',
   // Base GitLab host for the setup token form + create-token link. Overridable by GITLAB_HOST.
   gitlabHost: process.env.GITLAB_HOST ?? 'https://gitlab.bastrucks.com',
+  // Jira host prefilled in the setup form (empty => user enters it). Overridable by JIRA_HOST.
+  jiraHost: process.env.JIRA_HOST ?? '',
   // Map "<group>/<app>" -> local repo dir "<path>@<base branch>", resolved under
   // workspaceDir. Shorthand: an entry with no ":value" defaults its repo path to the
   // key, e.g. AGENT_REPOS="auction/api@main,lease/api@main" (== "auction/api:auction/api@main").

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PanelShell } from '@/components/panel-shell'
 import { cn } from '@/lib/utils'
-import { createTokenUrl } from '@/lib/setup/repos-client'
+import { createTokenUrl, createJiraTokenUrl } from '@/lib/setup/repos-client'
 import type { SetupStatus, RepoState } from '@/lib/setup/repos'
 
 const STATE_CLASS: Record<RepoState, string> = {
@@ -107,6 +107,78 @@ function TokenForm({ host: initialHost }: { host: string }) {
   )
 }
 
+function JiraForm({ host: initialHost }: { host: string }) {
+  const [host, setHost] = useState(initialHost)
+  const [email, setEmail] = useState('')
+  const [token, setToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/setup/jira', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host, email, token }),
+      })
+      const json = await res.json()
+      if (!json?.ok) setError(json?.message ?? 'Could not save the Jira credentials.')
+      else setToken('') // poll will flip `jiraConfigured` to true and swap this form out
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <p className="font-mono text-sm text-amber-500">
+        Connect Jira (host + account email + API token) to load the board.
+      </p>
+      <a
+        href={createJiraTokenUrl()}
+        target="_blank"
+        rel="noreferrer"
+        className="inline-block font-mono text-sm text-primary underline hover:opacity-80"
+      >
+        Create an API token in Jira →
+      </a>
+      <label className="block space-y-1">
+        <span className="font-mono text-xs text-muted-foreground">Jira host</span>
+        <input
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+          placeholder="https://your-org.atlassian.net"
+          className="h-9 w-full rounded-none border border-border bg-background px-2 font-mono text-sm"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="font-mono text-xs text-muted-foreground">Account email</span>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@company.com"
+          className="h-9 w-full rounded-none border border-border bg-background px-2 font-mono text-sm"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="font-mono text-xs text-muted-foreground">API token</span>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          className="h-9 w-full rounded-none border border-border bg-background px-2 font-mono text-sm"
+        />
+      </label>
+      {error && <p className="font-mono text-sm text-destructive">[ FAIL ] {error}</p>}
+      <Button size="sm" disabled={saving || !host || !email || !token} onClick={save}>
+        {saving ? 'Validating…' : 'Connect Jira'}
+      </Button>
+    </div>
+  )
+}
+
 export function ReposSetup() {
   const { data, loading } = usePoll<SetupStatus>('/api/setup/repos', 5000)
   const [runs, setRuns] = useState<Record<string, RowRun>>({})
@@ -143,11 +215,14 @@ export function ReposSetup() {
   return (
     <PanelShell<SetupStatus> title="repos" result={data} loading={loading}>
       {(status) => {
-        if (!status.configured) return <TokenForm host={status.host} />
         const missing = status.repos.filter((r) => r.state === 'missing')
         return (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
+          <div className="space-y-4">
+            {!status.configured ? (
+              <TokenForm host={status.host} />
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
               <p className="font-mono text-xs text-muted-foreground">root: {status.root}</p>
               {missing.length > 0 && (
                 <Button size="sm" disabled={busy} onClick={() => runAll(missing.map((m) => m.repoName))}>
@@ -202,7 +277,10 @@ export function ReposSetup() {
               {status.repos.length === 0 && (
                 <li className="font-mono text-sm text-muted-foreground">no repos configured — set AGENT_REPOS</li>
               )}
-            </ul>
+                </ul>
+              </div>
+            )}
+            {!status.jiraConfigured && <JiraForm host={status.jiraHost} />}
           </div>
         )
       }}

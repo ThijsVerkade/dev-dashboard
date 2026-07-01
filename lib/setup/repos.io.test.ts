@@ -5,6 +5,7 @@ vi.mock('@/dashboard.config', () => ({
     agentRepos: { 'auction/api': 'auction/api@main', 'lease/api': 'lease/api@main' },
     workspaceDir: '/tmp/root',
     gitlabHost: 'https://gitlab.example.com',
+    jiraHost: 'https://acme.atlassian.net',
   },
 }))
 vi.mock('node:fs', () => ({ existsSync: vi.fn(), mkdirSync: vi.fn(), rmSync: vi.fn() }))
@@ -22,6 +23,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   delete process.env.GITLAB_HOST
   delete process.env.GITLAB_TOKEN
+  delete process.env.JIRA_HOST
+  delete process.env.JIRA_EMAIL
+  delete process.env.JIRA_TOKEN
 })
 
 describe('installRoot', () => {
@@ -43,6 +47,15 @@ describe('getStatus', () => {
     process.env.GITLAB_TOKEN = 't'
     existsMock.mockReturnValue(false)
     expect(getStatus().configured).toBe(true)
+  })
+  it('reports jira config: false without all creds, true with host+email+token, plus jiraHost', () => {
+    existsMock.mockReturnValue(false)
+    expect(getStatus().jiraConfigured).toBe(false)
+    expect(getStatus().jiraHost).toBe('https://acme.atlassian.net')
+    process.env.JIRA_HOST = 'https://acme.atlassian.net'
+    process.env.JIRA_EMAIL = 'a@b.co'
+    process.env.JIRA_TOKEN = 't'
+    expect(getStatus().jiraConfigured).toBe(true)
   })
   it('includes the configured gitlab host', () => {
     existsMock.mockReturnValue(false)
