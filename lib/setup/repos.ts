@@ -103,7 +103,10 @@ export function selectCloneTargets(status: SetupStatus, repoName?: string): Repo
 }
 
 /** Clone one repo over HTTPS, then strip the token from origin. Never overwrites an existing dir. */
-export function cloneRepo(entry: RepoEntry): Result<{ repoName: string }> {
+export function cloneRepo(
+  entry: RepoEntry,
+  _opts: { force?: boolean } = {},
+): Result<{ repoName: string; branch: string; warning?: string }> {
   const gl = resolveGitlab()
   if (!gl) return unconfigured('set GITLAB_HOST and GITLAB_TOKEN to clone')
   const dest = join(installRoot(), entry.repoName)
@@ -116,14 +119,23 @@ export function cloneRepo(entry: RepoEntry): Result<{ repoName: string }> {
     })
     // Best-effort: check out the configured base branch (no-op if it's already the default).
     try {
-      execFileSync('git', ['-C', dest, 'checkout', entry.baseBranch], { stdio: 'ignore' })
+      execFileSync('git', ['-C', dest, 'checkout', entry.baseBranch], { stdio: 'pipe' })
     } catch {
       // base branch may equal the default or not exist remotely — leave the default checkout
     }
     execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', cleanRemoteUrl(gl.host, entry.repoName)], {
       stdio: 'ignore',
     })
-    return ok({ repoName: entry.repoName })
+    // Read back the actual branch so a missing/mistyped base branch is surfaced, not silent.
+    const head = execFileSync('git', ['-C', dest, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+      stdio: 'pipe',
+    })
+    const branch = (head ? head.toString() : '').trim()
+    const warning =
+      branch !== entry.baseBranch
+        ? `cloned on '${branch}'; requested branch '${entry.baseBranch}' not found`
+        : undefined
+    return ok({ repoName: entry.repoName, branch, ...(warning ? { warning } : {}) })
   } catch (e) {
     // Remove any partial clone this run created, so a leaked token can't persist in .git/config.
     try { rmSync(dest, { recursive: true, force: true }) } catch {}

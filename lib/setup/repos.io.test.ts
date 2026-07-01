@@ -74,6 +74,7 @@ describe('cloneRepo', () => {
     existsMock.mockReturnValue(false)
     const res = cloneRepo(entry)
     expect(res.ok).toBe(true)
+    expect(res.ok === true && typeof res.data.branch).toBe('string')
     const argLists = execMock.mock.calls.map((c) => c[1] as string[])
     expect(argLists[0]).toEqual(['clone', 'https://oauth2:secret@gl.x/auction/api.git', '/tmp/root/auction/api'])
     const setUrl = argLists.find((a) => a.includes('set-url'))
@@ -115,5 +116,20 @@ describe('cloneRepo', () => {
     expect(res.ok).toBe(false)
     expect(rmMock).toHaveBeenCalledWith('/tmp/root/auction/api', { recursive: true, force: true })
     expect(JSON.stringify(res)).not.toContain('secret')
+  })
+
+  it('warns when the requested base branch is not the checked-out branch', () => {
+    process.env.GITLAB_HOST = 'https://gl.x'
+    process.env.GITLAB_TOKEN = 'secret'
+    existsMock.mockReturnValue(false)
+    execMock.mockImplementation((_bin, args) => {
+      const a = args as string[]
+      if (a.includes('rev-parse')) return 'master\n' as never // HEAD ended up on master
+      return '' as never
+    })
+    const res = cloneRepo(entry) // entry.baseBranch === 'main'
+    expect(res.ok).toBe(true)
+    expect(res.ok === true && res.data.branch).toBe('master')
+    expect(res.ok === true && res.data.warning).toContain('main')
   })
 })
