@@ -92,7 +92,7 @@ export const dashboardConfig = {
   agentRepos: parseEnvMap(process.env.AGENT_REPOS),
   // Optional explicit group order/allowlist, e.g. AGENT_GROUPS="auction,lease".
   agentGroupsOrder: parseEnvList(process.env.AGENT_GROUPS),
-  // Base directory holding local repos. Defaults to ~/workspace (resolved server-side).
+  // Base directory holding local repos. Defaults to <dashboard>/repos (resolved in installRoot()).
   workspaceDir: process.env.WORKSPACE_DIR ?? '',
   // Map group -> staging base URL, e.g.
   // STAGING_URLS="auction:https://auction-stg.example.com,lease:https://lease-stg.example.com".
