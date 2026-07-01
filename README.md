@@ -9,8 +9,15 @@ A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Cod
    - `GITLAB_HOST` — e.g. `https://gitlab.example.com`
    - `GITLAB_TOKEN` — a personal access token, scope `read_api`
    - `GITLAB_PROJECTS` — comma-separated project ids or paths to show (e.g. `group/proj-a,group/proj-b`)
-3. (Optional) Configure AWS for the **Logs** panel: set `AWS_REGION` + `AWS_PROFILE`, or run `aws sso login`. Without it the Logs panel shows a "not configured" note — the rest of the dashboard works regardless.
-4. **Claude activity** needs nothing — it runs the bundled `ccusage` against your local `~/.claude` data.
+3. **Install the application repos:** `npm run setup` clones every repo listed in
+   `AGENT_REPOS` into `./repos` (or `WORKSPACE_DIR`), skipping any already present.
+   You can also do this from the dashboard's **Setup** page, which shows which repos
+   are installed and offers per-repo / clone-all buttons. `npm run dev` prints a
+   reminder if any configured repo is still missing (it never blocks startup).
+   The token needs the **`read_repository`** scope to clone (a `read_api`-only token
+   can't). Set `WORKSPACE_DIR=~/workspace` to reuse existing clones instead of `./repos`.
+4. (Optional) Configure AWS for the **Logs** panel: set `AWS_REGION` + `AWS_PROFILE`, or run `aws sso login`. Without it the Logs panel shows a "not configured" note — the rest of the dashboard works regardless.
+5. **Claude activity** needs nothing — it runs the bundled `ccusage` against your local `~/.claude` data.
 
 ## Run
 

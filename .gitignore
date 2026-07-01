@@ -3,6 +3,9 @@
 # agent job records (runtime: metadata + logs)
 /.agent-jobs
 
+# cloned application repos (installed by `npm run setup`)
+/repos
+
 # dependencies
 /node_modules
 /.pnp
