@@ -12,6 +12,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AwsLoginGate } from "@/components/aws-login-gate";
+import { ReposBanner } from "@/components/repos-banner";
 
 const terminalMono = JetBrains_Mono({
   variable: "--font-terminal-mono",
@@ -47,6 +48,7 @@ export default function RootLayout({
                     <CommandPalette />
                   </div>
                 </header>
+                <ReposBanner />
                 <main className="flex flex-1 flex-col gap-6 p-4 md:p-6">
                   {children}
                 </main>
