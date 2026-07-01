@@ -102,7 +102,10 @@ export function selectCloneTargets(status: SetupStatus, repoName?: string): Repo
     : status.repos.filter((r) => r.state === 'missing')
 }
 
-/** Clone one repo over HTTPS, then strip the token from origin. Never overwrites an existing dir. */
+/**
+ * Clone one repo over HTTPS, then strip the token from origin. Refuses a healthy
+ * git repo; with `force`, removes a non-git dir at the destination before cloning.
+ */
 export function cloneRepo(
   entry: RepoEntry,
   opts: { force?: boolean } = {},
