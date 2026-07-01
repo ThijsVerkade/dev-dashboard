@@ -34,6 +34,8 @@ function StatusPill({ status }: { status: string }) {
   )
 }
 
+const EMPTY_SESSIONS: ActiveSession[] = []
+
 const KIND_STYLE: Record<LiveEvent['kind'], { glyph: string; className: string }> = {
   text: { glyph: '', className: 'text-foreground' },
   tool_use: { glyph: '$', className: 'text-primary' },
@@ -94,7 +96,7 @@ function SessionRow({
 
 export function ClaudeActivity() {
   const sessions = usePoll<ActiveSession[]>('/api/claude/sessions/live', 3000)
-  const list = sessions.data?.ok ? sessions.data.data : []
+  const list = sessions.data?.ok ? sessions.data.data : EMPTY_SESSIONS
 
   const [selected, setSelected] = useState<string | null>(null)
   // Effective selection: the chosen session if still active, else the newest.
@@ -160,7 +162,7 @@ export function ClaudeActivity() {
         <ResizableHandle withHandle />
 
         <ResizablePanel id="feed" order={2} defaultSize={65} minSize={20}>
-          <div ref={scrollRef} className="h-full space-y-0.5 overflow-y-auto bg-muted/20 p-3">
+          <div key={effective ?? 'none'} ref={scrollRef} className="h-full space-y-0.5 overflow-y-auto bg-muted/20 p-3">
             {live.data?.ok && live.data.data.events.length > 0 ? (
               live.data.data.events.map((e, i) => <EventRow key={`${e.ts}-${i}`} event={e} />)
             ) : (

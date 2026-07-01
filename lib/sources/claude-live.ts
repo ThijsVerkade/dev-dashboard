@@ -36,7 +36,7 @@ const TAIL_BYTES = 256 * 1024
 const IDLE_AFTER_MS = 60_000
 const ACTIVE_WINDOW_MS = 10 * 60_000
 const ACTIVE_CAP = 8
-const STATUS_TAIL_BYTES = 16 * 1024
+const STATUS_TAIL_BYTES = 64 * 1024
 
 // --- pure helpers (unit-tested) ---------------------------------------------
 
@@ -274,7 +274,7 @@ export async function getLive(sessionId?: string): Promise<Result<ClaudeLive>> {
 
     return ok({
       project: projectFromDir(session.dir),
-      sessionId: basename(session.path, '.jsonl').slice(0, 8),
+      sessionId: basename(session.path, '.jsonl'),
       model,
       lastActivity,
       status: deriveStatus(events, Date.now()),
