@@ -100,7 +100,7 @@ describe('cloneRepo', () => {
     existsMock.mockReturnValue(true) // dest already exists
     const res = cloneRepo(entry)
     expect(res.ok).toBe(false)
-    expect(res.ok === false && res.message).toContain('already exists')
+    expect(res.ok === false && res.message).toContain('git repository')
     expect(execMock).not.toHaveBeenCalled()
   })
 
@@ -131,5 +131,29 @@ describe('cloneRepo', () => {
     expect(res.ok).toBe(true)
     expect(res.ok === true && res.data.branch).toBe('master')
     expect(res.ok === true && res.data.warning).toContain('main')
+  })
+
+  it('force re-clones a present-not-git dir: removes it, then clones', () => {
+    process.env.GITLAB_HOST = 'https://gl.x'
+    process.env.GITLAB_TOKEN = 'secret'
+    // dest exists, but dest/.git does not => present-not-git
+    existsMock.mockImplementation((p) => String(p) === '/tmp/root/auction/api')
+    const res = cloneRepo(entry, { force: true })
+    expect(res.ok).toBe(true)
+    expect(rmMock).toHaveBeenCalledWith('/tmp/root/auction/api', { recursive: true, force: true })
+    const argLists = execMock.mock.calls.map((c) => c[1] as string[])
+    expect(argLists.some((a) => a[0] === 'clone')).toBe(true)
+  })
+
+  it('force refuses to delete a valid git repo (present)', () => {
+    process.env.GITLAB_HOST = 'https://gl.x'
+    process.env.GITLAB_TOKEN = 'secret'
+    // both dest and dest/.git exist => present (healthy)
+    existsMock.mockReturnValue(true)
+    const res = cloneRepo(entry, { force: true })
+    expect(res.ok).toBe(false)
+    expect(res.ok === false && res.message).toContain('git repository')
+    expect(rmMock).not.toHaveBeenCalled()
+    expect(execMock).not.toHaveBeenCalled()
   })
 })

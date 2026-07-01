@@ -105,12 +105,18 @@ export function selectCloneTargets(status: SetupStatus, repoName?: string): Repo
 /** Clone one repo over HTTPS, then strip the token from origin. Never overwrites an existing dir. */
 export function cloneRepo(
   entry: RepoEntry,
-  _opts: { force?: boolean } = {},
+  opts: { force?: boolean } = {},
 ): Result<{ repoName: string; branch: string; warning?: string }> {
   const gl = resolveGitlab()
   if (!gl) return unconfigured('set GITLAB_HOST and GITLAB_TOKEN to clone')
   const dest = join(installRoot(), entry.repoName)
-  if (existsSync(dest)) return failure(`${dest} already exists`)
+  if (existsSync(dest)) {
+    const isGitRepo = existsSync(join(dest, '.git'))
+    if (isGitRepo) return failure(`${dest} is already a git repository — refusing to delete it`)
+    if (!opts.force) return failure(`${dest} already exists`)
+    // present-not-git + force: remove the broken/partial dir before re-cloning.
+    try { rmSync(dest, { recursive: true, force: true }) } catch {}
+  }
   try {
     mkdirSync(dirname(dest), { recursive: true })
     execFileSync('git', ['clone', buildCloneUrl(gl.host, gl.token, entry.repoName), dest], {

@@ -7,13 +7,14 @@ export const dynamic = 'force-dynamic'
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const repoName = typeof body?.repoName === 'string' ? body.repoName : undefined
+  const force = body?.force === true
   const status = getStatus()
   if (!status.configured) {
     return NextResponse.json(unconfigured('set GITLAB_HOST and GITLAB_TOKEN to clone'))
   }
   const results = selectCloneTargets(status, repoName).map((t) => ({
     repoName: t.repoName,
-    result: cloneRepo(t),
+    result: cloneRepo(t, { force }),
   }))
   return NextResponse.json(ok(results))
 }
