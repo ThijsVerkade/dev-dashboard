@@ -19,6 +19,7 @@ vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }))
 
 import { existsSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { dashboardConfig } from '@/dashboard.config'
 import { upsertEnv, saveGitlabToken } from '@/lib/setup/gitlab-token'
 
 const existsMock = vi.mocked(existsSync)
@@ -55,6 +56,7 @@ describe('saveGitlabToken', () => {
     expect(JSON.stringify(res)).not.toContain('secret')
     expect(writeMock).not.toHaveBeenCalled()
     expect(process.env.GITLAB_TOKEN).toBeUndefined()
+    expect(process.env.GITLAB_HOST).toBeUndefined()
   })
   it('validates then persists and sets process.env', () => {
     execMock.mockReturnValue('' as never) // ls-remote succeeds
@@ -67,5 +69,18 @@ describe('saveGitlabToken', () => {
     expect(written).toContain('GITLAB_TOKEN=secret')
     expect(process.env.GITLAB_TOKEN).toBe('secret')
     expect(process.env.GITLAB_HOST).toBe('https://gl.x')
+  })
+  it('persists without validating when no repos are configured', () => {
+    const saved = dashboardConfig.agentRepos
+    ;(dashboardConfig as { agentRepos: Record<string, string> }).agentRepos = {}
+    try {
+      existsMock.mockReturnValue(false)
+      const res = saveGitlabToken('https://gl.x', 'secret')
+      expect(res.ok).toBe(true)
+      expect(execMock).not.toHaveBeenCalled() // no git ls-remote validation
+      expect(writeMock).toHaveBeenCalledTimes(1)
+    } finally {
+      ;(dashboardConfig as { agentRepos: Record<string, string> }).agentRepos = saved
+    }
   })
 })
