@@ -113,3 +113,20 @@ export async function getEvents(
     return failure(e instanceof Error ? e.message : 'CloudWatch request failed')
   }
 }
+
+/**
+ * Cheap "are AWS creds valid right now?" probe: one DescribeLogGroups call
+ * limited to a single group. `ok` = authed, `unconfigured` = needs SSO login,
+ * `failure` = some other error. Mirrors getServiceMap's error handling.
+ */
+export async function probeAuth(env: string): Promise<Result<{ profile?: string }>> {
+  const profile = dashboardConfig.cloudwatchEnvProfiles[env]
+  try {
+    await client(env).send(new DescribeLogGroupsCommand({ limit: 1 }))
+    return ok({ profile })
+  } catch (e) {
+    if (isMissingCreds(e))
+      return unconfigured(`AWS credentials for "${env}" not found. Log in with AWS SSO to continue.`)
+    return failure(e instanceof Error ? e.message : 'AWS auth check failed')
+  }
+}
