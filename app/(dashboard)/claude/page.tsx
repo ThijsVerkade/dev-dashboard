@@ -1,11 +1,5 @@
-import { ClaudeLivePanel } from '@/components/claude-live'
-import { ClaudePanel } from '@/components/claude-panel'
+import { redirect } from 'next/navigation'
 
 export default function ClaudePage() {
-  return (
-    <div className="space-y-4">
-      <ClaudeLivePanel />
-      <ClaudePanel />
-    </div>
-  )
+  redirect('/dashboard')
 }

@@ -1,4 +1,4 @@
-import { Bot, GitBranch, Rocket, ScrollText, SquareKanban, Workflow } from "lucide-react"
+import { GitBranch, LayoutDashboard, Rocket, SquareKanban, Workflow } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 export type NavItem = {
@@ -14,10 +14,9 @@ export type NavItem = {
  * never drift.
  */
 export const navItems: NavItem[] = [
+  { href: "/dashboard", title: "Dashboard", icon: LayoutDashboard },
   { href: "/", title: "Release Flow", icon: Rocket },
   { href: "/pipelines", title: "Pipelines", icon: GitBranch },
-  { href: "/logs", title: "Logs", icon: ScrollText },
-  { href: "/claude", title: "Claude", icon: Bot },
   { href: "/agents", title: "Agents", icon: Workflow },
   { href: "/jira", title: "Jira", icon: SquareKanban },
 ]
