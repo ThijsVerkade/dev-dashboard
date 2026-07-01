@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils'
 function ResizablePanelGroup({
   className,
   ...props
-}: React.ComponentProps<typeof ResizablePrimitive.Group>) {
+}: React.ComponentProps<typeof ResizablePrimitive.PanelGroup>) {
   return (
-    <ResizablePrimitive.Group
+    <ResizablePrimitive.PanelGroup
       className={cn(
         'flex h-full w-full data-[panel-group-direction=vertical]:flex-col',
         className,
@@ -24,11 +24,11 @@ function ResizableHandle({
   withHandle,
   className,
   ...props
-}: React.ComponentProps<typeof ResizablePrimitive.Separator> & {
+}: React.ComponentProps<typeof ResizablePrimitive.PanelResizeHandle> & {
   withHandle?: boolean
 }) {
   return (
-    <ResizablePrimitive.Separator
+    <ResizablePrimitive.PanelResizeHandle
       className={cn(
         'relative flex w-px items-center justify-center bg-border transition-colors',
         'after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2',
@@ -45,7 +45,7 @@ function ResizableHandle({
           <GripVertical className="h-2.5 w-2.5 text-muted-foreground" />
         </div>
       )}
-    </ResizablePrimitive.Separator>
+    </ResizablePrimitive.PanelResizeHandle>
   )
 }
 
