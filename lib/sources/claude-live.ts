@@ -20,11 +20,23 @@ export type ClaudeLive = {
   events: LiveEvent[]
 }
 
+export type ActiveSession = {
+  sessionId: string
+  project: string
+  model: string
+  status: string
+  lastActivity: string
+  lastEventLabel: string
+}
+
 const TEXT_MAX = 120
 const ARG_MAX = 80
 const EVENT_LIMIT = 40
 const TAIL_BYTES = 256 * 1024
 const IDLE_AFTER_MS = 60_000
+const ACTIVE_WINDOW_MS = 10 * 60_000
+const ACTIVE_CAP = 8
+const STATUS_TAIL_BYTES = 16 * 1024
 
 // --- pure helpers (unit-tested) ---------------------------------------------
 
@@ -140,20 +152,42 @@ function clip(s: string, max: number): string {
   return one.length > max ? one.slice(0, max) + '…' : one
 }
 
-// --- I/O --------------------------------------------------------------------
+export type SessionFile = { path: string; dir: string; mtimeMs: number }
 
-type SessionFile = { path: string; dir: string; mtimeMs: number }
+/** Files touched within `windowMs`, newest first, capped at `cap`. */
+export function selectActiveSessions(
+  files: SessionFile[],
+  nowMs: number,
+  windowMs: number,
+  cap: number,
+): SessionFile[] {
+  return files
+    .filter((file) => nowMs - file.mtimeMs <= windowMs)
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, cap)
+}
+
+/** Resolve a session id to a scanned file. Unknown/unsafe ids fall back to the
+ *  newest — the id is only ever compared to known basenames, never joined into
+ *  a path, so this is the path-traversal guard. */
+export function findSessionById(files: SessionFile[], sessionId?: string): SessionFile | null {
+  if (files.length === 0) return null
+  if (!sessionId) return files[0]
+  return files.find((file) => basename(file.path, '.jsonl') === sessionId) ?? files[0]
+}
+
+// --- I/O --------------------------------------------------------------------
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 const SCAN_TTL_MS = 5_000
-let scanCache: { value: SessionFile | null; expires: number } | null = null
+let scanCache: { value: SessionFile[]; expires: number } | null = null
 
-/** Find the most-recently-modified transcript across all projects. Cached. */
-async function findActiveSession(): Promise<SessionFile | null> {
+/** All transcripts across all projects, newest-first. Cached briefly. */
+async function scanSessions(): Promise<SessionFile[]> {
   const now = Date.now()
   if (scanCache && scanCache.expires > now) return scanCache.value
 
-  let newest: SessionFile | null = null
+  const found: SessionFile[] = []
   const dirs = await readdir(PROJECTS_DIR, { withFileTypes: true })
   for (const d of dirs) {
     if (!d.isDirectory()) continue
@@ -164,20 +198,19 @@ async function findActiveSession(): Promise<SessionFile | null> {
     } catch {
       continue
     }
-    for (const f of files) {
-      if (!f.endsWith('.jsonl')) continue
+    for (const fileName of files) {
+      if (!fileName.endsWith('.jsonl')) continue
       try {
-        const s = await stat(join(dirPath, f))
-        if (!newest || s.mtimeMs > newest.mtimeMs) {
-          newest = { path: join(dirPath, f), dir: d.name, mtimeMs: s.mtimeMs }
-        }
+        const s = await stat(join(dirPath, fileName))
+        found.push({ path: join(dirPath, fileName), dir: d.name, mtimeMs: s.mtimeMs })
       } catch {
         // file vanished between readdir and stat — ignore
       }
     }
   }
-  scanCache = { value: newest, expires: now + SCAN_TTL_MS }
-  return newest
+  found.sort((a, b) => b.mtimeMs - a.mtimeMs)
+  scanCache = { value: found, expires: now + SCAN_TTL_MS }
+  return found
 }
 
 /** Read only the trailing bytes of a (potentially huge) file. */
@@ -195,9 +228,40 @@ async function readTail(path: string, maxBytes: number): Promise<string> {
   }
 }
 
-export async function getLive(): Promise<Result<ClaudeLive>> {
+/** Overview of every recently-active session (for the sessions list). */
+export async function getActiveSessions(): Promise<Result<ActiveSession[]>> {
   try {
-    const session = await findActiveSession()
+    const files = await scanSessions()
+    const active = selectActiveSessions(files, Date.now(), ACTIVE_WINDOW_MS, ACTIVE_CAP)
+    const sessions = await Promise.all(
+      active.map(async (file) => {
+        const chunk = await readTail(file.path, STATUS_TAIL_BYTES)
+        const lines = parseTranscriptTail(chunk)
+        const events = normalizeEvents(lines, EVENT_LIMIT)
+        const model =
+          [...lines].reverse().find((l) => typeof l?.message?.model === 'string')?.message.model ?? ''
+        const last = events[events.length - 1]
+        return {
+          sessionId: basename(file.path, '.jsonl'),
+          project: projectFromDir(file.dir),
+          model,
+          status: deriveStatus(events, Date.now()),
+          lastActivity: last?.ts ?? new Date(file.mtimeMs).toISOString(),
+          lastEventLabel: last?.label ?? '',
+        }
+      }),
+    )
+    return ok(sessions)
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return unconfigured('no Claude sessions found')
+    return failure(e instanceof Error ? e.message : 'Failed to read Claude transcripts')
+  }
+}
+
+export async function getLive(sessionId?: string): Promise<Result<ClaudeLive>> {
+  try {
+    const files = await scanSessions()
+    const session = findSessionById(files, sessionId)
     if (!session) return unconfigured('no Claude sessions found')
 
     const chunk = await readTail(session.path, TAIL_BYTES)
@@ -217,8 +281,7 @@ export async function getLive(): Promise<Result<ClaudeLive>> {
       events,
     })
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT')
-      return unconfigured('no Claude sessions found')
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return unconfigured('no Claude sessions found')
     return failure(e instanceof Error ? e.message : 'Failed to read Claude transcript')
   }
 }

@@ -5,6 +5,9 @@ import {
   summarizeToolInput,
   deriveStatus,
   projectFromDir,
+  selectActiveSessions,
+  findSessionById,
+  type SessionFile,
 } from './claude-live'
 
 test('parseTranscriptTail drops a truncated leading partial line and parses the rest', () => {
@@ -102,4 +105,42 @@ test('deriveStatus reports idle with elapsed seconds when last activity is old',
 test('projectFromDir extracts the project name from an encoded ~/.claude/projects dir', () => {
   expect(projectFromDir('-Users-thijs-verkade-workspace-dev-dashboard')).toBe('dev-dashboard')
   expect(projectFromDir('-Users-thijs-verkade-other-thing')).toBe('Users-thijs-verkade-other-thing')
+})
+
+const f = (name: string, mtimeMs: number): SessionFile => ({
+  path: `/p/dir/${name}.jsonl`,
+  dir: 'dir',
+  mtimeMs,
+})
+
+test('selectActiveSessions keeps only files within the window, newest-first', () => {
+  const now = 1_000_000
+  const files = [f('a', now - 5_000), f('b', now - 700_000), f('c', now - 1_000)]
+  const active = selectActiveSessions(files, now, 600_000, 8)
+  expect(active.map((s) => s.path)).toEqual(['/p/dir/c.jsonl', '/p/dir/a.jsonl'])
+})
+
+test('selectActiveSessions caps the list', () => {
+  const now = 1_000_000
+  const files = Array.from({ length: 12 }, (_, i) => f(`s${i}`, now - i))
+  expect(selectActiveSessions(files, now, 600_000, 8)).toHaveLength(8)
+})
+
+test('findSessionById returns the newest when no id is given', () => {
+  const files = [f('newest', 100), f('older', 50)]
+  expect(findSessionById(files)?.path).toBe('/p/dir/newest.jsonl')
+})
+
+test('findSessionById matches by transcript basename', () => {
+  const files = [f('newest', 100), f('wanted', 50)]
+  expect(findSessionById(files, 'wanted')?.path).toBe('/p/dir/wanted.jsonl')
+})
+
+test('findSessionById falls back to newest for an unknown or unsafe id (no path built)', () => {
+  const files = [f('newest', 100), f('older', 50)]
+  expect(findSessionById(files, '../../etc/passwd')?.path).toBe('/p/dir/newest.jsonl')
+})
+
+test('findSessionById returns null when there are no files', () => {
+  expect(findSessionById([], 'anything')).toBeNull()
 })
