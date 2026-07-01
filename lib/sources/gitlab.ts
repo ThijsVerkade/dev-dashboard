@@ -179,7 +179,7 @@ export async function getProjectPipelines(project: string): Promise<Result<Pipel
   if (!api) return unconfigured('Set GITLAB_HOST and GITLAB_TOKEN in .env.local')
   try {
     const raw = await api.Pipelines.all(project, { perPage: 20, maxPages: 1 })
-    return ok(raw.map((p: any) => mapPipeline(p, project)))
+    return ok(raw.map((p) => mapPipeline(p, project)))
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'GitLab request failed')
   }
