@@ -4,6 +4,7 @@ vi.mock('@/dashboard.config', () => ({
   dashboardConfig: {
     agentRepos: { 'auction/api': 'auction/api@main', 'lease/api': 'lease/api@main' },
     workspaceDir: '/tmp/root',
+    gitlabHost: 'https://gitlab.example.com',
   },
 }))
 vi.mock('node:fs', () => ({ existsSync: vi.fn(), mkdirSync: vi.fn(), rmSync: vi.fn() }))
@@ -42,6 +43,10 @@ describe('getStatus', () => {
     process.env.GITLAB_TOKEN = 't'
     existsMock.mockReturnValue(false)
     expect(getStatus().configured).toBe(true)
+  })
+  it('includes the configured gitlab host', () => {
+    existsMock.mockReturnValue(false)
+    expect(getStatus().host).toBe('https://gitlab.example.com')
   })
 })
 

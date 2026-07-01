@@ -22,6 +22,8 @@ export type SetupStatus = {
   configured: boolean
   /** Absolute install root. */
   root: string
+  /** GitLab host for the token form / create-token link. */
+  host: string
   repos: RepoStatus[]
 }
 
@@ -90,7 +92,7 @@ export function getStatus(): SetupStatus {
     const path = join(root, e.repoName)
     return { ...e, path, state: classify(path) }
   })
-  return { configured: !!resolveGitlab(), root, repos }
+  return { configured: !!resolveGitlab(), root, host: dashboardConfig.gitlabHost, repos }
 }
 
 /** Which repos a clone request targets: one named repo, or all currently missing. */
