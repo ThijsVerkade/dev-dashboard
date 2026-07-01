@@ -1,6 +1,6 @@
 // Client-safe helpers for the local AWS SSO login flow. Shared by the login
 // gate and the Logs panel. NO `server-only` import — these run in the browser.
-import type { Result } from '@/lib/result'
+import { failure, type Result } from '@/lib/result'
 
 export type GateState = 'checking' | 'authed' | 'needs-login' | 'error'
 
@@ -28,6 +28,11 @@ export async function triggerSsoLogin(env: string): Promise<{ ok: boolean; messa
 
 /** Fetch current AWS auth status for an env. */
 export async function fetchAuthStatus(env: string): Promise<Result<{ profile?: string }>> {
-  const res = await fetch(`/api/cloudwatch/auth-status?env=${encodeURIComponent(env)}`)
-  return (await res.json()) as Result<{ profile?: string }>
+  try {
+    const res = await fetch(`/api/cloudwatch/auth-status?env=${encodeURIComponent(env)}`)
+    if (!res.ok) return failure(`Auth status check failed (HTTP ${res.status}).`)
+    return (await res.json()) as Result<{ profile?: string }>
+  } catch {
+    return failure('Could not reach the auth-status endpoint.')
+  }
 }
