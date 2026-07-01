@@ -1,0 +1,12 @@
+# Keep the image lean and never bake secrets/artifacts into it.
+node_modules
+.next
+.git
+repos
+# never copy any env file into an image layer — they hold tokens
+.env
+.env.*
+*.log
+docs
+.superpowers
+.claude

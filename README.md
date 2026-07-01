@@ -31,6 +31,23 @@ A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Cod
 - `npm test` → unit tests for the connectors
 - `npm run build` → production build
 
+### Run with Docker
+
+A dev-mode container is provided (it runs `next dev`; the production `next build` is
+currently blocked by a Next 16 types issue). It reuses your host's AWS SSO session,
+`~/.claude` data, `./repos`, and `.env.local` via bind mounts — so credentials and clones
+persist on the host, not in the image.
+
+1. **On the host, log in once** so the container can reuse the cached SSO session:
+   `aws sso login --profile platform-dev`. The in-app *Log in to AWS SSO* button can't
+   open a browser from inside the container, so this step happens on the host.
+2. `cp .env.local.example .env.local` and set your values. Tokens can still be entered in
+   the setup gate — the writes land in the mounted `.env.local`.
+3. `docker compose up` → http://localhost:3000. (Stop a local `npm run dev` first if it's
+   holding port 3000.)
+
+`~/.claude` is mounted read-only for the Claude panel; repos clone into `./repos` on the host.
+
 ## What you get
 
 - **GitLab Pipelines** — recent pipelines for your configured projects; click a pipeline → its jobs → click a job to **live-tail its trace** (ANSI-stripped, clean lines).
