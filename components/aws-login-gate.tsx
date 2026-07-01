@@ -6,6 +6,7 @@ import {
 import type { Result } from '@/lib/result'
 
 const POLL_MS = 2000
+const MAX_POLLS = 90 // ~3 minutes at POLL_MS intervals
 
 export function AwsLoginGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>('checking')
@@ -46,12 +47,18 @@ export function AwsLoginGate({ children }: { children: React.ReactNode }) {
       setBusy(false)
       return
     }
+    let attempts = 0
     const poll = async () => {
       if (!alive.current) return
       const status = await fetchAuthStatus(env.current)
       if (!alive.current) return
       if (status.ok) {
         setState('authed')
+        setBusy(false)
+        return
+      }
+      if (++attempts >= MAX_POLLS) {
+        setMessage('Timed out waiting for AWS SSO approval. Click to try again.')
         setBusy(false)
         return
       }
