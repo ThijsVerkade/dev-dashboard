@@ -5,19 +5,25 @@ A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Cod
 ## Setup
 
 1. `npm install`
-2. `cp .env.local.example .env.local` and fill in:
-   - `GITLAB_HOST` — e.g. `https://gitlab.example.com`
-   - `GITLAB_TOKEN` — a personal access token, scope `read_api`
-   - `GITLAB_PROJECTS` — comma-separated project ids or paths to show (e.g. `group/proj-a,group/proj-b`)
-3. **Install the application repos:** `npm run setup` clones every repo listed in
-   `AGENT_REPOS` into `./repos` (or `WORKSPACE_DIR`), skipping any already present.
-   You can also do this from the dashboard's **Setup** page, which shows which repos
-   are installed and offers per-repo / clone-all buttons. `npm run dev` prints a
-   reminder if any configured repo is still missing (it never blocks startup).
-   The token needs the **`read_repository`** scope to clone (a `read_api`-only token
-   can't). Set `WORKSPACE_DIR=~/workspace` to reuse existing clones instead of `./repos`.
-4. (Optional) Configure AWS for the **Logs** panel: set `AWS_REGION` + `AWS_PROFILE`, or run `aws sso login`. Without it the Logs panel shows a "not configured" note — the rest of the dashboard works regardless.
-5. **Claude activity** needs nothing — it runs the bundled `ccusage` against your local `~/.claude` data.
+2. `cp .env.local.example .env.local`. The example is pre-filled for BAS, so you
+   normally only set your AWS profile (`CW_ENV_PROFILES` / `AWS_PROFILE`) and your own
+   `JIRA_EMAIL`. **You do not need to put any tokens in the file** — the app collects and
+   validates them for you in step 3 and writes them to `.env.local`.
+3. `npm run dev`, then open http://localhost:3000. The app is gated: it walks you
+   through setup in order and only unlocks once all three pass —
+   1. **AWS** — click **Log in to AWS SSO** (one login authorizes dev/stg/prod).
+   2. **GitLab + repos** — paste a GitLab token (there's a **Create a token →** link;
+      scope `read_repository` to clone, `api` for the Release Flow write actions). It's
+      validated and saved, then **Clone all missing** installs the configured repos into
+      `./repos` (or `WORKSPACE_DIR`). A **Re-clone** button repairs a broken checkout.
+   3. **Jira** — enter your Jira host, account email, and an API token (with an Atlassian
+      **Create a token →** link). Validated and saved.
+   You can revisit all of this later on the **Setup** page. Prefer the CLI? `npm run setup`
+   clones the repos from a terminal (`npm run setup -- --check` just reports status).
+4. **Claude activity** needs nothing — it runs the bundled `ccusage` against your local `~/.claude` data.
+
+> **Security:** `.env.local` is gitignored and holds your tokens; **never commit real
+> tokens to `.env.local.example`** (it is tracked). Each person uses their own tokens.
 
 ## Run
 
