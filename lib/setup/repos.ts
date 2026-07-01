@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { type Result, ok, unconfigured, failure } from '@/lib/result'
 import { dashboardConfig } from '@/dashboard.config'
@@ -123,6 +123,8 @@ export function cloneRepo(entry: RepoEntry): Result<{ repoName: string }> {
     })
     return ok({ repoName: entry.repoName })
   } catch (e) {
+    // Remove any partial clone this run created, so a leaked token can't persist in .git/config.
+    try { rmSync(dest, { recursive: true, force: true }) } catch {}
     const err = e as { message?: string; stderr?: Buffer | string }
     const raw = [err.message, err.stderr?.toString()].filter(Boolean).join('\n') || 'git clone failed'
     return failure(redactToken(raw, gl.token))
