@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
+import { triggerSsoLogin } from '@/lib/aws-login-client'
 
 function initialParams(): { env?: string; domain?: string } {
   if (typeof window === 'undefined') return {}
@@ -36,13 +37,8 @@ export function LogsPanel() {
   const triggerLogin = useCallback(async (targetEnv: string) => {
     if (!targetEnv) return
     setLoginMsg('Opening AWS SSO login in your browser — approve it to continue…')
-    try {
-      const res = await fetch(`/api/cloudwatch/login?env=${encodeURIComponent(targetEnv)}`, { method: 'POST' })
-      const json = (await res.json()) as { ok: boolean; message?: string }
-      if (!json.ok) setLoginMsg(json.message ?? 'Could not start AWS SSO login.')
-    } catch {
-      setLoginMsg('Could not reach the login endpoint.')
-    }
+    const json = await triggerSsoLogin(targetEnv)
+    if (!json.ok) setLoginMsg(json.message ?? 'Could not start AWS SSO login.')
   }, [])
 
   // Auto-fire the login once per env the first time its creds come back missing.
