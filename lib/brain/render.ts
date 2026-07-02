@@ -52,7 +52,7 @@ export function renderProjectPage(
 
   const follows = [TIER_STD[facts.tier], 'deployment', 'coding-standards']
     .filter((s): s is string => !!s)
-    .map((s) => `[[${s}]]`)
+    .map((s) => `[[standards/${s}|${s}]]`)
     .join(' · ')
 
   const autoInner = [

@@ -16,8 +16,8 @@ describe('renderProjectPage', () => {
     expect(content).toContain('tier: api')
     expect(content).toContain(AUTO_START)
     expect(content).toContain('NestJS')
-    expect(content).toContain('[[api]]')
-    expect(content).toContain('[[deployment]]')
+    expect(content).toContain('[[standards/api|api]]')
+    expect(content).toContain('[[standards/deployment|deployment]]')
     expect(content).toContain('## What this does')
   })
 
