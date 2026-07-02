@@ -30,5 +30,6 @@ services:
       - /app/.next
       # Reuse the host AWS SSO cache/credentials (rw so the SDK can refresh tokens).
       - ${HOME}/.aws:/root/.aws:rw
-      # Claude Activity panel runs ccusage against your host usage data.
-      - ${HOME}/.claude:/root/.claude:ro
+      # Claude Activity panel reads your host usage data; the agent runner also spawns
+      # `claude` in-container, which WRITES session/transcript state here — so mount rw.
+      - ${HOME}/.claude:/root/.claude:rw

@@ -1,26 +1,31 @@
 # dev-dashboard
 
-A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Code activity in one pane — so you don't have to keep 3–4 apps open.
+A local dashboard unifying GitLab pipelines, the Release Flow board, AWS CloudWatch logs, and Claude Code activity in one pane — so you don't have to keep 3–4 apps open.
+
+It's for the whole team, not just engineers: the app opens without AWS, so product owners can drive the Release Flow board (merge, deploy to staging, tag for production) and dispatch agents right away. AWS is only needed for the CloudWatch Logs panel, which asks for it on its own.
 
 ## Setup
 
 1. `npm install`
 2. `cp .env.local.example .env.local`. The example is pre-filled for BAS, so you
-   normally only set your AWS profile (`CW_ENV_PROFILES` / `AWS_PROFILE`) and your own
-   `JIRA_EMAIL`. **You do not need to put any tokens in the file** — the app collects and
-   validates them for you in step 3 and writes them to `.env.local`.
-3. `npm run dev`, then open http://localhost:3000. The app is gated: it walks you
-   through setup in order and only unlocks once all three pass —
-   1. **AWS** — click **Log in to AWS SSO** (one login authorizes dev/stg/prod).
-   2. **GitLab + repos** — paste a GitLab token (there's a **Create a token →** link;
+   normally only set your own `JIRA_EMAIL` (and, *if* you want the Logs panel, your AWS
+   profile via `CW_ENV_PROFILES`). **You do not need to put any tokens in the file** — the
+   app collects and validates them for you in step 3 and writes them to `.env.local`.
+3. `npm run dev`, then open http://localhost:3000. The app unlocks once the two setup
+   steps below pass — then everything (board, triggers, Jira, Claude activity) is usable:
+   1. **GitLab + repos** — paste a GitLab token (there's a **Create a token →** link;
       scope `read_repository` to clone, `api` for the Release Flow write actions). It's
       validated and saved, then **Clone all missing** installs the configured repos into
       `./repos` (or `WORKSPACE_DIR`). A **Re-clone** button repairs a broken checkout.
-   3. **Jira** — enter your Jira host, account email, and an API token (with an Atlassian
+   2. **Jira** — enter your Jira host, account email, and an API token (with an Atlassian
       **Create a token →** link). Validated and saved.
    You can revisit all of this later on the **Setup** page. Prefer the CLI? `npm run setup`
    clones the repos from a terminal (`npm run setup -- --check` just reports status).
-4. **Claude activity** needs nothing — it runs the bundled `ccusage` against your local `~/.claude` data.
+4. **AWS is optional and not a gate** — the dashboard opens without it, so product owners
+   can trigger board actions right away. Only the **CloudWatch Logs** panel needs AWS: open
+   it and it prompts **Log in to AWS SSO** inline when credentials are missing (one login
+   authorizes dev/stg/prod).
+5. **Claude activity** needs nothing — it runs the bundled `ccusage` against your local `~/.claude` data.
 
 > **Security:** `.env.local` is gitignored and holds your tokens; **never commit real
 > tokens to `.env.local.example`** (it is tracked). Each person uses their own tokens.
@@ -36,22 +41,33 @@ A local dashboard unifying GitLab pipelines, AWS CloudWatch logs, and Claude Cod
 A dev-mode container is provided (it runs `next dev`; the production `next build` is
 currently blocked by a Next 16 types issue). It reuses your host's AWS SSO session,
 `~/.claude` data, `./repos`, and `.env.local` via bind mounts — so credentials and clones
-persist on the host, not in the image.
+persist on the host, not in the image. The `claude` CLI is baked into the image so the
+Agents page can trigger headless Claude Code jobs from inside the container.
 
-1. **On the host, log in once** so the container can reuse the cached SSO session:
-   `aws sso login --profile platform-dev`. The in-app *Log in to AWS SSO* button can't
-   open a browser from inside the container, so this step happens on the host.
-2. `cp .env.local.example .env.local` and set your values. Tokens can still be entered in
+1. `cp .env.local.example .env.local` and set your values. Tokens can still be entered in
    the setup gate — the writes land in the mounted `.env.local`.
-3. `docker compose up` → http://localhost:3000. (Stop a local `npm run dev` first if it's
-   holding port 3000.)
+2. `docker compose up` — on startup it prints the link. Open
+   **http://master-dev-dashboard.localhost:3000** (or plain **http://localhost:3000**).
+   Any `*.localhost` name resolves to your own machine automatically on macOS/Windows/Linux
+   and in every browser — no `/etc/hosts` edit, no `sudo`, nothing to install. (Stop a local
+   `npm run dev` first if it's holding port 3000.)
+3. **AWS logs (optional):** the dashboard opens without AWS. Only the CloudWatch Logs panel
+   needs it — and the in-app *Log in to AWS SSO* button can't open a browser from inside the
+   container, so run `aws sso login --profile <your-profile>` **on the host** once; the
+   container reuses the cached session through the mounted `~/.aws`.
 
-`~/.claude` is mounted read-only for the Claude panel; repos clone into `./repos` on the host.
+`~/.claude` is mounted read-write (the agent runner writes Claude Code session state there);
+`~/.aws` is mounted for the Logs panel; repos clone into `./repos` on the host.
+
+> **Claude auth in the container:** the mounted `~/.claude` supplies auth only if your host
+> stores a file-based token there. If `claude` in the container reports it's not logged in
+> (common when the host keeps credentials in the macOS Keychain), set an `ANTHROPIC_API_KEY`
+> in `.env.local`, or run `claude` once in the container to establish a token.
 
 ## What you get
 
 - **GitLab Pipelines** — recent pipelines for your configured projects; click a pipeline → its jobs → click a job to **live-tail its trace** (ANSI-stripped, clean lines).
-- **CloudWatch Logs** — pick a log group and **live-tail** events (deduped, no skipped late-arriving lines).
+- **CloudWatch Logs** — pick an environment and domain, then **live-tail all its App Runner services** (fe, bff, api, …) in one merged, timestamp-sorted console; toggle individual services in and out. Prompts for AWS SSO inline when creds are missing.
 - **Claude Activity** — total cost & tokens plus a per-session table, refreshed from `ccusage`.
 
 ## How it works
@@ -84,16 +100,10 @@ feature branch → MR → merge to main   (dev / acc auto-deploy)
 | Setting | Purpose |
 |---|---|
 | `GITLAB_STAGING_JOB` env var | Override the manual staging job name (default: `deploy:staging`) |
-| `dashboard.config.ts` `cloudwatchLogGroups` | Map `"<project>:<env>"` → CloudWatch log group to enable per-env log tailing from the board |
+| `CW_ENV_PROFILES` env var | Map each log environment to an AWS named profile, e.g. `dev=auction-dev,stg=auction-stg,prod=auction-prod`. Powers the Logs panel's env selector. Unset → a single `dev` env using the default credential chain. |
+| `CW_REGION` env var | AWS region for App Runner log discovery/tail (falls back to `AWS_REGION` / `AWS_DEFAULT_REGION`). |
 
-Example `dashboard.config.ts` snippet:
-
-```ts
-cloudwatchLogGroups: {
-  "group/proj-a:staging": "/ecs/proj-a-staging",
-  "group/proj-a:production": "/ecs/proj-a-production",
-},
-```
+App Runner log groups are auto-discovered per environment (`/aws/apprunner/<domain>-<service>-<env>/…`), so there's no manual log-group mapping to maintain.
 
 ### Acceptance-tester agent profile
 

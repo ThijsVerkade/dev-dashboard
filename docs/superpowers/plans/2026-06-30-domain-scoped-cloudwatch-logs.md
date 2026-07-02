@@ -782,3 +782,12 @@ git commit -m "feat: domain-scoped multi-service CloudWatch log console"
 **Type consistency:** `ServiceMap` (Task 3) used in Tasks 4/6; `LogLine`/`mergeLine` (Task 5) used in Task 6; `getEvents(group, start, env)` (Task 3) called in Task 4; `parseServiceName`/`serviceLabel` (Task 2) used in Task 3 `buildServiceMap`; `parseEnvMapEq`/`cloudwatchEnvProfiles`/`cloudwatchRegion` (Task 1) used in Task 3. Consistent. ✓
 
 **Known limitation (acceptable):** `getServiceMap`/`getEvents`/route wiring not unit-tested (thin SDK/HTTP wrappers); pure cores tested. Verified manually in Task 6 Step 4.
+
+---
+
+## As-built note (post-implementation)
+
+Task 6 shipped a cleaner architecture than the plan's reference code, after review:
+- **Per-service streams:** each service owns its own `<ServiceStream key={label}>` child component (one `EventSource` each) rather than a single `useEffect` managing all streams. Toggling a chip mounts/unmounts exactly one stream; the others are structurally untouched (no reconnect). This is what the spec's "move things in and out with no disruption" requires.
+- **Buffer reset:** done by `key={`${env}:${domain}`}` on `<LogConsole>` in the panel (remount → fresh buffer), instead of `useEffect(() => setLines([]), [key])`. Avoids the `set-state-in-effect` lint pattern.
+- **Tag colors:** stable per-label hash (`colorFor`) instead of positional index, so colors don't shift when chips toggle.
