@@ -27,6 +27,13 @@ describe('renderProjectPage', () => {
     const { content } = renderProjectPage(facts, edited, '2026-07-03')
     expect(content).toContain('It runs auctions.')
   })
+
+  it('does not duplicate the title across repeated re-renders', () => {
+    let out = renderProjectPage(facts, null, '2026-07-02').content
+    out = renderProjectPage(facts, out, '2026-07-03').content
+    out = renderProjectPage(facts, out, '2026-07-04').content
+    expect(out.match(/# auction\/api/g)?.length).toBe(1)
+  })
 })
 
 describe('renderAdr', () => {

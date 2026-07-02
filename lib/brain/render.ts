@@ -30,6 +30,10 @@ function stripFrontmatter(content: string): string {
   return end === -1 ? content : content.slice(end + 5)
 }
 
+function stripLeadingTitle(body: string): string {
+  return body.replace(/^\s*#\s+[^\n]*\n+/, '')
+}
+
 export function renderProjectPage(
   facts: ProjectFacts,
   existing: string | null,
@@ -65,7 +69,7 @@ export function renderProjectPage(
 
   const stub = ['## What this does', '', '_Describe what this project does._'].join('\n')
 
-  const existingBody = existing === null ? null : stripFrontmatter(existing)
+  const existingBody = existing === null ? null : stripLeadingTitle(stripFrontmatter(existing))
   const merged = mergeAutoBlock(existingBody, autoInner, stub)
   const title = `# ${facts.group}/${facts.app}\n\n`
   return { content: `${fm}\n${title}${merged.body}\n`, warned: merged.warned }
