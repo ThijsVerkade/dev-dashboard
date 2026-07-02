@@ -1,0 +1,5 @@
+{
+  "name": "auction-api",
+  "scripts": { "start:dev": "nest start --watch", "build": "nest build", "test": "vitest run" },
+  "dependencies": { "@nestjs/core": "^10.0.0", "drizzle-orm": "^0.30.0", "pg": "^8.11.0" }
+}
