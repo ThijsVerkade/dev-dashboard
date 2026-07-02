@@ -5,6 +5,7 @@
   "scripts": {
     "aws:login": "bash scripts/ensure-sso.sh --force",
     "setup": "tsx scripts/setup-repos.ts",
+    "brain": "tsx scripts/build-brain.ts",
     "predev": "bash scripts/ensure-sso.sh && tsx scripts/setup-repos.ts --check",
     "dev": "next dev",
     "predev:lan": "bash scripts/ensure-sso.sh && tsx scripts/setup-repos.ts --check",

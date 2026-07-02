@@ -35,6 +35,8 @@ It's for the whole team, not just engineers: the app opens without AWS, so produ
 - `npm run dev` → http://localhost:3000
 - `npm test` → unit tests for the connectors
 - `npm run build` → production build
+- `npm run brain` → build/refresh the Knowledge Brain vault in `./brain` (open in Obsidian).
+  `--check` reports without writing; `--projects-only` / `--adrs-only` scope the run.
 
 ### Run with Docker
 

@@ -51,3 +51,6 @@ next-env.d.ts
 
 # IDE
 .idea/
+
+# Knowledge Brain generated vault (built by `npm run brain`)
+/brain
