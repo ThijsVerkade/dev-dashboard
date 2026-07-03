@@ -45,6 +45,11 @@ describe('buildVault', () => {
     expect(project).toContain('NestJS')
     const adr = await readFile(join(brainDir, 'adrs', 'ADR-0006-adr-6-x.md'), 'utf8')
     expect(adr).toContain('Body')
+
+    const read = (rel: string) => readFile(join(brainDir, rel), 'utf8')
+    expect(await read('architecture/index.md')).toContain('# Architecture')
+    expect(await read('architecture/domain-layer.md')).toContain('Bounded contexts')
+    expect(await read('architecture/system-flow.md')).toContain('FE → BFF → API')
   })
 
   it('auto-fills testing.md with detected tooling and preserves hand edits on rebuild', async () => {

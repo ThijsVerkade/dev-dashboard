@@ -216,3 +216,147 @@ export function renderIndex(title: string, links: Array<{ label: string; href: s
   const list = links.map((l) => `- [[${l.href}|${l.label}]]`).join('\n')
   return `# ${title}\n\n${list}\n`
 }
+
+const ARCHITECTURE_NOTES: Record<string, string> = {
+  index: `---
+type: architecture
+status: authored
+---
+# Architecture
+
+How the BAS platform is layered, written so an AI agent can navigate from the
+whole-system view down to a single layer.
+
+- [[architecture/system-flow|System flow: FE → BFF → API]]
+- [[architecture/domain-layer|Domain layer]]
+- [[architecture/application-layer|Application layer]]
+- [[architecture/infrastructure-layer|Infrastructure layer]]
+
+The API follows Domain-Driven Design with a hexagonal (ports & adapters)
+arrangement: each bounded context is split into **Application**, **Domain**,
+and **Infrastructure**. Read the layer notes in that order — Domain is the
+core, Application orchestrates it, Infrastructure adapts it to the outside
+world.
+`,
+  'system-flow': `---
+type: architecture
+status: authored
+---
+# System flow: FE → BFF → API
+
+Requests flow in one direction across three tiers. Each tier has one job and
+never reaches past its neighbour.
+
+## The chain
+
+1. **Frontend (FE)** — Next.js/React. Renders UI and calls **only** its BFF.
+   It never calls the API directly and holds no domain logic.
+2. **Backend-for-Frontend (BFF)** — a thin Node service per frontend. It
+   aggregates and shapes data for that specific UI, and passes authentication
+   through to the API. It owns no business rules. Its upstream API is wired via
+   an \`*_API_URL\` env var (e.g. \`AUCTION_API_URL\`).
+3. **API** — Laravel. Owns the domain: business rules, persistence, events.
+   It is the single source of truth and is shared across BFFs.
+
+## Rules
+
+- FE → BFF → API only. No tier skips its neighbour.
+- Domain rules live in the API, never in a BFF or FE.
+- The BFF adapts shape and auth for one frontend; if two frontends need
+  different shapes, they get different BFFs.
+
+See [[architecture/domain-layer|Domain]],
+[[architecture/application-layer|Application]], and
+[[architecture/infrastructure-layer|Infrastructure]] for how the API itself is
+layered.
+`,
+  'domain-layer': `---
+type: architecture
+status: authored
+---
+# Domain layer
+
+The core of the API. Pure business model with no framework or I/O concerns.
+
+## What lives here
+
+- **Entities** — objects with identity and a lifecycle (e.g. an Auction, a Lot).
+- **Value objects** — immutable values compared by content (e.g. Money, a bid
+  amount).
+- **Domain events** — facts that happened in the domain (e.g. \`BidPlaced\`).
+- **Domain services** — business logic that doesn't belong to a single entity.
+
+## Bounded contexts
+
+Each context is a self-contained slice of the domain under \`app/<Context>/\`,
+split into \`Application\` / \`Domain\` / \`Infrastructure\`. In \`auction/api\` these
+include **Auction**, **Inventory**, **Notification**, **Publishing**, **Hexon**,
+and a **Shared** kernel. A context owns its own models and never reaches into
+another context's internals.
+
+## Rules
+
+- No Laravel, Eloquent, HTTP, or database code here. Those are
+  [[architecture/infrastructure-layer|infrastructure]] details.
+- The Domain does not depend on the Application or Infrastructure layers —
+  dependencies point inward.
+`,
+  'application-layer': `---
+type: architecture
+status: authored
+---
+# Application layer
+
+Orchestrates the domain to fulfil a use case. The "verbs" of the system.
+
+## What lives here
+
+- **Use cases / application services** — one class per action (e.g. "place a
+  bid"): load domain objects, invoke domain behaviour, persist via a port,
+  dispatch events.
+- **Commands / queries** — the input shapes a use case accepts.
+- **Ports (interfaces)** — what the use case needs from the outside world
+  (repositories, gateways), defined here and implemented in
+  [[architecture/infrastructure-layer|infrastructure]].
+
+## Rules
+
+- Contains orchestration, not business rules — those belong in the
+  [[architecture/domain-layer|domain]].
+- No HTTP, framework, or persistence code. It depends on the Domain and on
+  ports it defines, never on concrete infrastructure.
+- Entry points (HTTP controllers, console commands, listeners) call the
+  Application layer — they are adapters, not part of it.
+`,
+  'infrastructure-layer': `---
+type: architecture
+status: authored
+---
+# Infrastructure layer
+
+Adapts the domain and application to the outside world. The replaceable edge.
+
+## What lives here
+
+- **Repository implementations** — the concrete side of the ports the
+  [[architecture/application-layer|application layer]] defines, backed by
+  Eloquent/the database.
+- **External adapters** — clients for other systems (S3, Firebase, Hexon,
+  messaging), HTTP entry points (\`Http/\` controllers, requests, resources),
+  and framework wiring (Laravel providers).
+- **Persistence mapping** — turning domain objects into rows and back.
+
+## Rules
+
+- Depends inward on the Application and Domain layers; they never depend on it
+  (ports & adapters / hexagonal).
+- Laravel and Eloquent are infrastructure details — swapping the framework
+  should not touch the [[architecture/domain-layer|domain]].
+- HTTP controllers are thin: validate input, call an application use case,
+  return a resource. No business logic.
+`,
+}
+
+export function renderArchitectureNote(slug: string): string {
+  return ARCHITECTURE_NOTES[slug]
+}

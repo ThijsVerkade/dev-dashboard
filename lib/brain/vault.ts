@@ -4,6 +4,7 @@ import { type Result } from '@/lib/result'
 import type { extractProject } from './extract-project'
 import {
   renderAdr,
+  renderArchitectureNote,
   renderIndex,
   renderProjectPage,
   renderStandardStub,
@@ -26,6 +27,8 @@ export interface BuildOptions {
   check: boolean
   scope: 'all' | 'projects' | 'adrs'
 }
+
+const ARCHITECTURE_NOTE_SLUGS = ['index', 'system-flow', 'domain-layer', 'application-layer', 'infrastructure-layer']
 
 const STANDARDS: StandardKind[] = ['coding-standards', 'api', 'frontend', 'bff', 'deployment', 'testing']
 /** Standards seeded once with static stub content; the rest are regenerated from detected tooling. */
@@ -134,6 +137,13 @@ export async function buildVault(opts: BuildOptions, deps: BuildDeps): Promise<V
     }
   }
 
+  // Architecture notes (authored, seed once).
+  if (opts.scope !== 'adrs') {
+    for (const slug of ARCHITECTURE_NOTE_SLUGS) {
+      await write(`architecture/${slug}.md`, renderArchitectureNote(slug), 'seed')
+    }
+  }
+
   // ADRs (full regenerate; placeholder + warn on failure).
   if (opts.scope !== 'projects') {
     const adrLinks: Array<{ label: string; href: string }> = []
@@ -160,6 +170,7 @@ export async function buildVault(opts: BuildOptions, deps: BuildDeps): Promise<V
       { label: 'Standards', href: 'standards/index' },
       { label: 'Projects', href: 'projects/index' },
       { label: 'ADRs', href: 'adrs/index' },
+      { label: 'Architecture', href: 'architecture/index' },
     ]),
     'refresh',
   )
