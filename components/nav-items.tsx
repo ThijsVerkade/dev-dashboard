@@ -1,4 +1,4 @@
-import { FolderGit2, GitBranch, LayoutDashboard, Rocket, SquareKanban, Workflow } from "lucide-react"
+import { Brain, FolderGit2, GitBranch, LayoutDashboard, Rocket, SquareKanban, Workflow } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
 export type NavItem = {
@@ -19,5 +19,6 @@ export const navItems: NavItem[] = [
   { href: "/pipelines", title: "Pipelines", icon: GitBranch },
   { href: "/agents", title: "Agents", icon: Workflow },
   { href: "/jira", title: "Jira", icon: SquareKanban },
+  { href: "/brain", title: "Brain", icon: Brain },
   { href: "/setup", title: "Setup", icon: FolderGit2 },
 ]
