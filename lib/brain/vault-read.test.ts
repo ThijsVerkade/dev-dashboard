@@ -18,9 +18,13 @@ beforeAll(() => {
   mkdirSync(join(dir, 'projects'))
   mkdirSync(join(dir, 'projects', 'auction'))
   writeFileSync(join(dir, 'projects', 'auction', 'api.md'), '# auction/api\n\nStuff.\n')
+  writeFileSync(join(dir, '..', 'leak.md'), '# Secret\n\nleak\n')
 })
 
-afterAll(() => rmSync(dir, { recursive: true, force: true }))
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true })
+  rmSync(join(dir, '..', 'leak.md'), { force: true })
+})
 
 describe('readVaultTree', () => {
   it('builds a nested tree with section index titles', () => {
@@ -68,6 +72,10 @@ describe('readNote', () => {
 
   it('rejects path traversal', () => {
     expect(readNote(dir, ['..', '..', 'etc', 'passwd'])).toBeNull()
+  })
+
+  it('does not read a real file outside the vault via traversal', () => {
+    expect(readNote(dir, ['..', 'leak'])).toBeNull()
   })
 })
 
