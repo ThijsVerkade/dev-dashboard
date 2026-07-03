@@ -68,7 +68,12 @@ function TokenForm({ host: initialHost }: { host: string }) {
   return (
     <div className="space-y-3">
       <p className="font-mono text-sm text-amber-500">
-        Set a GitLab token (scope: read_repository) to clone your repositories.
+        Set a GitLab token to clone your repositories and load pipelines.
+      </p>
+      <p className="font-mono text-[11px] text-muted-foreground">
+        Scopes: <code>api</code> + <code>read_repository</code> for everything (pipelines, cloning,
+        triggering jobs &amp; posting MR notes). Read-only alternative: <code>read_api</code> +{' '}
+        <code>read_repository</code> — but job triggers and MR comments will fail.
       </p>
       <a
         href={createTokenUrl(host)}
@@ -136,6 +141,10 @@ function JiraForm({ host: initialHost }: { host: string }) {
       <p className="font-mono text-sm text-amber-500">
         Connect Jira (host + account email + API token) to load the board.
       </p>
+      <p className="font-mono text-[11px] text-muted-foreground">
+        Classic API tokens need no scopes — they inherit your account&apos;s Jira permissions
+        (Browse Projects to read the board; Assign/Edit Issues &amp; Add Comments for board actions).
+      </p>
       <a
         href={createJiraTokenUrl()}
         target="_blank"
@@ -174,6 +183,75 @@ function JiraForm({ host: initialHost }: { host: string }) {
       {error && <p className="font-mono text-sm text-destructive">[ FAIL ] {error}</p>}
       <Button size="sm" disabled={saving || !host || !email || !token} onClick={save}>
         {saving ? 'Validating…' : 'Connect Jira'}
+      </Button>
+    </div>
+  )
+}
+
+function ObsidianForm() {
+  const [host, setHost] = useState('http://127.0.0.1:27123')
+  const [token, setToken] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/setup/obsidian', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host, token }),
+      })
+      const json = await res.json()
+      if (!json?.ok) setError(json?.message ?? 'Could not save the Obsidian settings.')
+      else {
+        setSaved(true)
+        setToken('')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      <p className="font-mono text-sm text-amber-500">
+        Connect Obsidian so agents can read/write the knowledge vault via the Local REST API.
+      </p>
+      <p className="font-mono text-[11px] text-muted-foreground">
+        In Obsidian: install &amp; enable <strong>Local REST API</strong>, turn on its{' '}
+        <code>Non-encrypted (HTTP) Server</code>, and copy the API key. This validates it and saves it to{' '}
+        <code>.env.local</code>; the MCP itself loads on the next Claude&nbsp;Code restart (needs{' '}
+        <code>OBSIDIAN_API_KEY</code> in your shell env).
+      </p>
+      <label className="block space-y-1">
+        <span className="font-mono text-xs text-muted-foreground">Obsidian host</span>
+        <input
+          value={host}
+          onChange={(e) => setHost(e.target.value)}
+          placeholder="http://127.0.0.1:27123"
+          className="h-9 w-full rounded-none border border-border bg-background px-2 font-mono text-sm"
+        />
+      </label>
+      <label className="block space-y-1">
+        <span className="font-mono text-xs text-muted-foreground">API key</span>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          className="h-9 w-full rounded-none border border-border bg-background px-2 font-mono text-sm"
+        />
+      </label>
+      {error && <p className="font-mono text-sm text-destructive">[ FAIL ] {error}</p>}
+      {saved && (
+        <p className="font-mono text-sm text-primary">
+          [ OK ] Validated &amp; saved. Restart Claude Code to load the Obsidian MCP.
+        </p>
+      )}
+      <Button size="sm" disabled={saving || !host || !token} onClick={save}>
+        {saving ? 'Validating…' : 'Connect Obsidian'}
       </Button>
     </div>
   )
@@ -281,6 +359,7 @@ export function ReposSetup() {
               </div>
             )}
             {!status.jiraConfigured && <JiraForm host={status.jiraHost} />}
+            <ObsidianForm />
           </div>
         )
       }}
