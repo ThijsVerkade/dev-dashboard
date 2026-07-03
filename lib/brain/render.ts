@@ -140,11 +140,76 @@ const STD_TITLE: Record<StandardKind, string> = {
   testing: 'Testing',
 }
 
-export function renderStandardStub(kind: StandardKind): string {
+/** Frontmatter, title, and stub prose for a standards page, kept separate so callers can
+ *  splice content (e.g. an AUTO block) between the title and the prose without re-parsing. */
+function standardParts(kind: StandardKind): { frontmatter: string; title: string; prose: string } {
   const tier = kind === 'coding-standards' ? 'cross-cutting' : kind
-  const fm = buildFrontmatter({ type: 'standard', tier, status: 'authored' })
-  const body = kind === 'deployment' ? DEPLOYMENT_BODY : STUB_BODY[kind]
-  return `${fm}\n# ${STD_TITLE[kind]}\n\n${body}\n`
+  const frontmatter = buildFrontmatter({ type: 'standard', tier, status: 'authored' })
+  const title = `# ${STD_TITLE[kind]}`
+  const prose = kind === 'deployment' ? DEPLOYMENT_BODY : STUB_BODY[kind]
+  return { frontmatter, title, prose }
+}
+
+export function renderStandardStub(kind: StandardKind): string {
+  const { frontmatter, title, prose } = standardParts(kind)
+  return `${frontmatter}\n${title}\n\n${prose}\n`
+}
+
+type ToolFacts = Pick<ProjectFacts, 'tier' | 'stack' | 'scripts'>
+
+function hasTool(hay: string[], needle: string): boolean {
+  return hay.some((s) => s.toLowerCase().includes(needle))
+}
+
+/** AUTO-block inner markdown summarizing detected tooling for a standards page. */
+export function renderToolingBlock(
+  kind: 'testing' | 'coding-standards',
+  facts: ToolFacts[],
+): string {
+  const detect = (f: ToolFacts): string[] => {
+    if (kind === 'testing') {
+      const t: string[] = []
+      if (hasTool(f.stack, 'pest')) t.push('Pest')
+      if (hasTool(f.scripts, 'vitest')) t.push('Vitest')
+      if (hasTool(f.scripts, 'jest')) t.push('Jest')
+      if (hasTool(f.scripts, 'playwright')) t.push('Playwright')
+      if (!t.length && hasTool(f.scripts, 'test')) t.push('test script')
+      return t
+    }
+    const t: string[] = []
+    if (hasTool(f.stack, 'pint')) t.push('Pint')
+    if (hasTool(f.scripts, 'lint')) t.push('ESLint')
+    if (hasTool(f.scripts, 'format')) t.push('Prettier')
+    if (hasTool(f.scripts, 'biome')) t.push('Biome')
+    return t
+  }
+
+  const byTier = new Map<string, Set<string>>()
+  for (const f of facts) {
+    for (const tool of detect(f)) {
+      const set = byTier.get(f.tier) ?? new Set<string>()
+      set.add(tool)
+      byTier.set(f.tier, set)
+    }
+  }
+  const lines =
+    byTier.size === 0
+      ? ['- _no tooling detected_']
+      : [...byTier].map(([tier, tools]) => `- **${tier}**: ${[...tools].sort().join(', ')}`)
+  return lines.join('\n')
+}
+
+/** Full standards file content with a regenerated tooling AUTO block + preserved prose. */
+export function renderStandardWithTooling(
+  kind: 'testing' | 'coding-standards',
+  facts: ToolFacts[],
+  existing: string | null,
+): string {
+  const { frontmatter, title, prose } = standardParts(kind)
+  const autoInner = renderToolingBlock(kind, facts)
+  const existingBody = existing === null ? null : stripLeadingTitle(stripFrontmatter(existing))
+  const merged = mergeAutoBlock(existingBody, autoInner, prose)
+  return `${frontmatter}\n${title}\n\n${merged.body}\n`
 }
 
 export function renderIndex(title: string, links: Array<{ label: string; href: string }>): string {

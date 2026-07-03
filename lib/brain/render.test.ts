@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { renderProjectPage, renderAdr, renderStandardStub, renderIndex, slugify } from './render'
+import {
+  renderProjectPage,
+  renderAdr,
+  renderStandardStub,
+  renderStandardWithTooling,
+  renderToolingBlock,
+  renderIndex,
+  slugify,
+} from './render'
 import { AUTO_START } from './auto-block'
 import type { ProjectFacts } from './types'
 
@@ -73,6 +81,52 @@ describe('renderStandardStub', () => {
   })
   it('stubs other standards', () => {
     expect(renderStandardStub('api')).toContain('type: standard')
+  })
+})
+
+describe('renderToolingBlock', () => {
+  const toolFacts = [
+    { tier: 'api', stack: ['PHP ^8.2', 'Pest', 'Pint'], scripts: ['unit-test', 'code-style'] },
+    { tier: 'frontend', stack: ['Next.js ^16'], scripts: ['test', 'lint', 'format'] },
+  ] as unknown as ProjectFacts[]
+
+  it('summarizes test frameworks grouped by tier', () => {
+    const md = renderToolingBlock('testing', toolFacts)
+    expect(md).toContain('Pest')
+    expect(md).toMatch(/api/)
+  })
+
+  it('summarizes linters and formatters', () => {
+    const md = renderToolingBlock('coding-standards', toolFacts)
+    expect(md).toContain('Pint')
+    expect(md).toContain('ESLint')
+    expect(md).toContain('Prettier')
+  })
+})
+
+describe('renderStandardWithTooling', () => {
+  const toolFacts = [
+    { tier: 'api', stack: ['PHP ^8.2', 'Pest', 'Pint'], scripts: ['unit-test', 'code-style'] },
+  ] as unknown as ProjectFacts[]
+
+  it('reuses the same frontmatter and title as renderStandardStub', () => {
+    const withTooling = renderStandardWithTooling('testing', toolFacts, null)
+    expect(withTooling).toMatch(/^---\ntype: standard\ntier: testing\nstatus: authored\n---\n\n# Testing\n/)
+  })
+
+  it('includes an AUTO block with detected tooling and the stub prose', () => {
+    const content = renderStandardWithTooling('testing', toolFacts, null)
+    expect(content).toContain(AUTO_START)
+    expect(content).toContain('Pest')
+    expect(content).toContain('## Expectations per tier')
+  })
+
+  it('preserves hand-authored prose below the AUTO block on re-render', () => {
+    const first = renderStandardWithTooling('testing', toolFacts, null)
+    const edited = first.replace('_TBD._', 'Run Pest for api, Vitest for frontend.')
+    const second = renderStandardWithTooling('testing', toolFacts, edited)
+    expect(second).toContain('Run Pest for api, Vitest for frontend.')
+    expect(second).toContain(AUTO_START)
   })
 })
 

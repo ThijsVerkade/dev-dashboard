@@ -2,8 +2,15 @@ import { mkdir, readdir, readFile, writeFile, stat } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { type Result } from '@/lib/result'
 import type { extractProject } from './extract-project'
-import { renderAdr, renderIndex, renderProjectPage, renderStandardStub, type StandardKind } from './render'
-import type { VaultSummary } from './types'
+import {
+  renderAdr,
+  renderIndex,
+  renderProjectPage,
+  renderStandardStub,
+  renderStandardWithTooling,
+  type StandardKind,
+} from './render'
+import type { ProjectFacts, VaultSummary } from './types'
 
 export interface BuildDeps {
   extract: typeof extractProject
@@ -21,6 +28,9 @@ export interface BuildOptions {
 }
 
 const STANDARDS: StandardKind[] = ['coding-standards', 'api', 'frontend', 'bff', 'deployment', 'testing']
+/** Standards seeded once with static stub content; the rest are regenerated from detected tooling. */
+const SEEDED_STANDARDS: StandardKind[] = ['api', 'frontend', 'bff', 'deployment']
+const TOOLING_STANDARDS: Array<'testing' | 'coding-standards'> = ['testing', 'coding-standards']
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -79,9 +89,9 @@ export async function buildVault(opts: BuildOptions, deps: BuildDeps): Promise<V
     }
   }
 
-  // Standards (seed once).
+  // Standards (seed once; testing/coding-standards are handled after the projects pass below).
   if (opts.scope !== 'adrs') {
-    for (const kind of STANDARDS) {
+    for (const kind of SEEDED_STANDARDS) {
       await write(`standards/${kind}.md`, renderStandardStub(kind), 'seed')
     }
     await write(
@@ -93,9 +103,11 @@ export async function buildVault(opts: BuildOptions, deps: BuildDeps): Promise<V
 
   // Projects.
   if (opts.scope !== 'adrs') {
+    const allFacts: ProjectFacts[] = []
     const groups = new Map<string, string[]>()
     for (const { group, app, repoPath } of await discoverRepos(opts.reposDir)) {
       const facts = await deps.extract(group, app, repoPath)
+      allFacts.push(facts)
       const rel = `projects/${group}/${app}.md`
       const { content, warned } = renderProjectPage(facts, await readExisting(rel), deps.syncedDate)
       await write(rel, content, 'refresh')
@@ -114,6 +126,12 @@ export async function buildVault(opts: BuildOptions, deps: BuildDeps): Promise<V
       renderIndex('Projects', [...groups.keys()].map((g) => ({ label: g, href: `projects/${g}/index` }))),
       'refresh',
     )
+
+    // Standards auto-filled from detected tooling across all repos.
+    for (const kind of TOOLING_STANDARDS) {
+      const rel = `standards/${kind}.md`
+      await write(rel, renderStandardWithTooling(kind, allFacts, await readExisting(rel)), 'refresh')
+    }
   }
 
   // ADRs (full regenerate; placeholder + warn on failure).

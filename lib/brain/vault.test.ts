@@ -47,6 +47,21 @@ describe('buildVault', () => {
     expect(adr).toContain('Body')
   })
 
+  it('auto-fills testing.md with detected tooling and preserves hand edits on rebuild', async () => {
+    await buildVault({ brainDir, reposDir, adrPages: [], check: false, scope: 'all' }, deps)
+    const testingPath = join(brainDir, 'standards', 'testing.md')
+    const testing = await readFile(testingPath, 'utf8')
+    expect(testing).toContain('<!-- AUTO:start')
+
+    const withMarker = `${await readFile(testingPath, 'utf8')}\nHAND-EDITED MARKER\n`
+    await writeFile(testingPath, withMarker)
+
+    await buildVault({ brainDir, reposDir, adrPages: [], check: false, scope: 'all' }, deps)
+    const rebuilt = await readFile(testingPath, 'utf8')
+    expect(rebuilt).toContain('<!-- AUTO:start')
+    expect(rebuilt).toContain('HAND-EDITED MARKER')
+  })
+
   it('preserves hand-authored prose and does not overwrite existing standards', async () => {
     await buildVault({ brainDir, reposDir, adrPages: [], check: false, scope: 'all' }, deps)
     const p = join(brainDir, 'projects', 'auction', 'api.md')
