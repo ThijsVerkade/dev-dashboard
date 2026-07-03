@@ -55,7 +55,7 @@ export function renderProjectPage(
     .map((s) => `[[standards/${s}|${s}]]`)
     .join(' · ')
 
-  const autoInner = [
+  const sections: string[] = [
     facts.readmeIntro ? `> ${facts.readmeIntro}` : '> _No README summary found._',
     '',
     `**Follows:** ${follows}`,
@@ -65,7 +65,17 @@ export function renderProjectPage(
     '',
     '## Scripts',
     facts.scripts.length ? facts.scripts.map((s) => `- \`${s}\``).join('\n') : '- _none_',
-  ].join('\n')
+    '',
+    '## Configuration',
+    facts.envKeys.length ? facts.envKeys.map((k) => `- \`${k}\``).join('\n') : '- _no .env.example_',
+    '',
+    '## Layout',
+    facts.layout.length ? facts.layout.map((d) => `- \`${d}/\``).join('\n') : '- _none_',
+  ]
+  if (facts.boundedContexts.length) {
+    sections.push('', '## Bounded contexts', facts.boundedContexts.map((c) => `- ${c}`).join('\n'))
+  }
+  const autoInner = sections.join('\n')
 
   const stub = ['## What this does', '', '_Describe what this project does._'].join('\n')
 

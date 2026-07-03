@@ -7,6 +7,9 @@ const facts: ProjectFacts = {
   group: 'auction', app: 'api', tier: 'api', repoPath: 'repos/basworld/auction/api',
   stack: ['NestJS', 'Drizzle'], scripts: ['start:dev', 'build'], readmeTitle: 'Auction API',
   readmeIntro: 'The auction service.', hasAgentsDoc: false,
+  envKeys: ['APP_NAME', 'AUCTION_API_URL'],
+  layout: ['app', 'routes', 'tests'],
+  boundedContexts: ['Auction', 'Shared'],
 }
 
 describe('renderProjectPage', () => {
@@ -33,6 +36,21 @@ describe('renderProjectPage', () => {
     out = renderProjectPage(facts, out, '2026-07-03').content
     out = renderProjectPage(facts, out, '2026-07-04').content
     expect(out.match(/# auction\/api/g)?.length).toBe(1)
+  })
+
+  it('renders configuration, layout, and bounded-contexts sections', () => {
+    const { content } = renderProjectPage(facts, null, '2026-07-02')
+    expect(content).toContain('## Configuration')
+    expect(content).toContain('`AUCTION_API_URL`')
+    expect(content).toContain('## Layout')
+    expect(content).toContain('## Bounded contexts')
+    expect(content).toContain('Auction')
+  })
+
+  it('omits bounded contexts for a non-api page', () => {
+    const feFacts = { ...facts, tier: 'frontend' as const, boundedContexts: [] }
+    const { content } = renderProjectPage(feFacts, null, '2026-07-02')
+    expect(content).not.toContain('## Bounded contexts')
   })
 })
 
