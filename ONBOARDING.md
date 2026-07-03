@@ -80,3 +80,7 @@ npm test        # the real gate (Vitest)
   the plugin's `data.json` are all gitignored. Each teammate uses their own.
 - The Obsidian MCP gives *Claude* read/write access to the vault; the `/brain`
   dashboard route is a separate, read-only in-browser view of the same notes.
+- **Git activity is live, not stored.** The `brain-git-activity` Claude skill
+  (in `.claude/skills/`, travels with the repo) teaches Claude to pull recent
+  commits, branches, and authorship straight from `repos/` on demand — the
+  notes only hold stable facts.
