@@ -2,7 +2,7 @@
 import Link from "next/link"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import type { ComponentPropsWithoutRef } from "react"
+import type { Components } from "react-markdown"
 
 type NoteProps = {
   title: string
@@ -25,7 +25,7 @@ export function BrainNote({ title, frontmatter, body }: NoteProps) {
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            a: ({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) =>
+            a: ({ href, children, node, ...rest }) =>
               href?.startsWith("/") ? (
                 <Link href={href} className="text-primary underline underline-offset-2">
                   {children}
@@ -35,17 +35,17 @@ export function BrainNote({ title, frontmatter, body }: NoteProps) {
                   {children}
                 </a>
               ),
-            h1: (p) => <h2 className="mt-4 font-mono text-xl text-foreground" {...p} />,
-            h2: (p) => <h2 className="mt-4 font-mono text-lg text-foreground" {...p} />,
-            h3: (p) => <h3 className="mt-2 font-mono text-base text-foreground" {...p} />,
-            ul: (p) => <ul className="list-disc pl-5" {...p} />,
-            ol: (p) => <ol className="list-decimal pl-5" {...p} />,
-            blockquote: (p) => <blockquote className="border-l-2 border-border pl-3 text-muted-foreground" {...p} />,
-            code: (p) => <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs" {...p} />,
-            table: (p) => <table className="w-full border-collapse text-left" {...p} />,
-            th: (p) => <th className="border border-border px-2 py-1 font-mono text-xs" {...p} />,
-            td: (p) => <td className="border border-border px-2 py-1" {...p} />,
-          }}
+            h1: ({ node, ...p }) => <h2 className="mt-4 font-mono text-xl text-foreground" {...p} />,
+            h2: ({ node, ...p }) => <h2 className="mt-4 font-mono text-lg text-foreground" {...p} />,
+            h3: ({ node, ...p }) => <h3 className="mt-2 font-mono text-base text-foreground" {...p} />,
+            ul: ({ node, ...p }) => <ul className="list-disc pl-5" {...p} />,
+            ol: ({ node, ...p }) => <ol className="list-decimal pl-5" {...p} />,
+            blockquote: ({ node, ...p }) => <blockquote className="border-l-2 border-border pl-3 text-muted-foreground" {...p} />,
+            code: ({ node, ...p }) => <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs" {...p} />,
+            table: ({ node, ...p }) => <table className="w-full border-collapse text-left" {...p} />,
+            th: ({ node, ...p }) => <th className="border border-border px-2 py-1 font-mono text-xs" {...p} />,
+            td: ({ node, ...p }) => <td className="border border-border px-2 py-1" {...p} />,
+          } satisfies Components}
         >
           {body}
         </ReactMarkdown>
