@@ -12,7 +12,20 @@ const STACK_LABELS: Array<[RegExp, string]> = [
   [/^(pg|postgres)$/, 'Postgres'],
   [/^express$/, 'Express'],
   [/^@apollo\/server$/, 'Apollo'],
+  [/^php$/, 'PHP'],
+  [/^laravel\/framework$/, 'Laravel'],
+  [/^pestphp\/pest$/, 'Pest'],
+  [/^larastan\/larastan$/, 'Larastan'],
+  [/^laravel\/pint$/, 'Pint'],
+  [/^symfony\//, 'Symfony'],
 ]
+
+/**
+ * Labels that stay bare (no version suffix) even though their dep has a version string.
+ * Covers family/prefix matches (Symfony) and dev-tooling labels (Pest, Larastan, Pint)
+ * where the version isn't meaningful stack-identification signal.
+ */
+const UNVERSIONED = new Set(['Symfony', 'Pest', 'Larastan', 'Pint'])
 
 async function readJson(path: string): Promise<Record<string, unknown> | null> {
   try {
@@ -32,13 +45,19 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 function detectStack(deps: Record<string, unknown>): string[] {
-  const labels = new Set<string>()
-  for (const dep of Object.keys(deps)) {
+  const labels = new Map<string, string>() // label -> version ('' if none)
+  for (const [dep, version] of Object.entries(deps)) {
     for (const [re, label] of STACK_LABELS) {
-      if (re.test(dep)) labels.add(label)
+      if (re.test(dep)) {
+        if (!labels.has(label)) {
+          const v = !UNVERSIONED.has(label) && typeof version === 'string' ? version : ''
+          labels.set(label, v)
+        }
+        break
+      }
     }
   }
-  return [...labels]
+  return [...labels].map(([label, v]) => (v ? `${label} ${v}` : label))
 }
 
 /** First `# Heading` text and the first non-empty paragraph after it. */
@@ -57,11 +76,17 @@ export async function extractProject(
   repoPath: string,
 ): Promise<ProjectFacts> {
   const pkg = await readJson(`${repoPath}/package.json`)
+  const composer = await readJson(`${repoPath}/composer.json`)
   const deps = {
     ...((pkg?.dependencies as Record<string, unknown>) ?? {}),
     ...((pkg?.devDependencies as Record<string, unknown>) ?? {}),
+    ...((composer?.require as Record<string, unknown>) ?? {}),
+    ...((composer?.['require-dev'] as Record<string, unknown>) ?? {}),
   }
-  const scripts = Object.keys((pkg?.scripts as Record<string, unknown>) ?? {})
+  const scripts = [
+    ...Object.keys((pkg?.scripts as Record<string, unknown>) ?? {}),
+    ...Object.keys((composer?.scripts as Record<string, unknown>) ?? {}),
+  ]
 
   let readmeTitle: string | undefined
   let readmeIntro: string | undefined

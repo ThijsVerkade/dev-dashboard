@@ -5,7 +5,9 @@ export interface ProjectFacts {
   app: string
   tier: Tier
   repoPath: string
+  /** Detected stack labels, e.g. "Laravel ^13.0"; version suffix present when known. */
   stack: string[]
+  /** Script names from package.json and/or composer.json, merged. */
   scripts: string[]
   readmeTitle?: string
   readmeIntro?: string
