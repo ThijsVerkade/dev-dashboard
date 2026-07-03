@@ -30,6 +30,9 @@ describe('extractProject', () => {
     expect(f.stack).toEqual([])
     expect(f.scripts).toEqual([])
     expect(f.tier).toBe('unknown')
+    expect(f.envKeys).toEqual([])
+    expect(f.layout).toEqual([])
+    expect(f.boundedContexts).toEqual([])
   })
 
   it('extracts composer stack with versions and composer scripts', async () => {
@@ -45,5 +48,35 @@ describe('extractProject', () => {
     const f = await extractProject('auction', 'fe', `${fixtures}/next-fe`)
     // next-fe fixture pins next + react; labels should carry their versions
     expect(f.stack.some((s) => s.startsWith('Next.js '))).toBe(true)
+  })
+
+  it('parses env keys only (never values) from .env.example', async () => {
+    const f = await extractProject('auction', 'api', `${fixtures}/laravel-api`)
+    expect(f.envKeys).toEqual(
+      expect.arrayContaining(['APP_NAME', 'APP_KEY', 'AUCTION_API_URL', 'DB_PASSWORD']),
+    )
+    expect(JSON.stringify(f)).not.toContain('secret-should-never-be-emitted')
+    expect(JSON.stringify(f)).not.toContain('localhost:8000')
+  })
+
+  it('detects bounded contexts (app/*/Domain) for api tier', async () => {
+    const f = await extractProject('auction', 'api', `${fixtures}/laravel-api`)
+    expect(f.boundedContexts).toEqual(['Auction', 'Shared'])
+  })
+
+  it('does not detect bounded contexts for a frontend', async () => {
+    const f = await extractProject('auction', 'fe', `${fixtures}/next-fe`)
+    expect(f.boundedContexts).toEqual([])
+  })
+
+  it('lists top-level layout dirs, excluding noise', async () => {
+    const f = await extractProject('auction', 'api', `${fixtures}/laravel-api`)
+    expect(f.layout).toContain('app')
+  })
+
+  it('captures the first README section, not just one line', async () => {
+    const f = await extractProject('auction', 'api', `${fixtures}/laravel-api`)
+    expect(f.readmeIntro).toContain('documents nothing real')
+    expect(f.readmeIntro).not.toContain('Should not appear')
   })
 })

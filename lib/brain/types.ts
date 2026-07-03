@@ -12,6 +12,12 @@ export interface ProjectFacts {
   readmeTitle?: string
   readmeIntro?: string
   hasAgentsDoc: boolean
+  /** Variable names from .env.example (values are never read or stored). */
+  envKeys: string[]
+  /** Top-level directory names of the repo, excluding common noise dirs. */
+  layout: string[]
+  /** Directories directly under app/ that contain a Domain/ subdirectory (api tier only). */
+  boundedContexts: string[]
 }
 
 export interface AdrPage {
