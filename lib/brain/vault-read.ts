@@ -72,3 +72,23 @@ export function readNote(brainDir: string, slug: string[]): NoteView | null {
   }
   return null
 }
+
+/** Rewrite [[target|label]] / [[target]] into markdown links, resolving against known note slugs. */
+export function resolveWikiLinks(body: string, notePaths: string[]): string {
+  const set = new Set(notePaths)
+  const hrefFor = (target: string): string => `/brain/${target.replace(/\/index$/, '')}`
+
+  return body.replace(/\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]/g, (_full, rawTarget: string, rawLabel?: string) => {
+    const target = rawTarget.trim()
+    const label = (rawLabel ?? target).trim()
+
+    // Path-qualified: exact match wins.
+    if (set.has(target)) return `[${label}](${hrefFor(target)})`
+
+    // Bare: match by last path segment.
+    const matches = notePaths.filter((p) => basename(p) === target)
+    if (matches.length === 0) return label // unresolvable → plain text
+    const chosen = matches.find((p) => p.startsWith('standards/')) ?? (matches.length === 1 ? matches[0] : null)
+    return chosen ? `[${label}](${hrefFor(chosen)})` : label
+  })
+}

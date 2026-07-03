@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readVaultTree, readNote } from './vault-read'
+import { readVaultTree, readNote, resolveWikiLinks } from './vault-read'
 
 let dir: string
 
@@ -68,5 +68,30 @@ describe('readNote', () => {
 
   it('rejects path traversal', () => {
     expect(readNote(dir, ['..', '..', 'etc', 'passwd'])).toBeNull()
+  })
+})
+
+describe('resolveWikiLinks', () => {
+  const paths = ['index', 'standards/index', 'standards/api', 'adrs/ADR-0001-x', 'projects/auction/api', 'projects/lease/api']
+
+  it('rewrites a path-qualified link with a label', () => {
+    expect(resolveWikiLinks('see [[standards/api|API]]', paths)).toBe('see [API](/brain/standards/api)')
+  })
+
+  it('rewrites a bare link, defaulting the label to the target', () => {
+    expect(resolveWikiLinks('[[adrs/ADR-0001-x]]', paths)).toBe('[adrs/ADR-0001-x](/brain/adrs/ADR-0001-x)')
+  })
+
+  it('resolves a bare ambiguous link to the standards note', () => {
+    // "api" matches standards/api, projects/auction/api, projects/lease/api → prefer standards
+    expect(resolveWikiLinks('[[api]]', paths)).toBe('[api](/brain/standards/api)')
+  })
+
+  it('maps a trailing /index target to the section href', () => {
+    expect(resolveWikiLinks('[[standards/index|Standards]]', paths)).toBe('[Standards](/brain/standards)')
+  })
+
+  it('leaves an unresolvable target as plain text', () => {
+    expect(resolveWikiLinks('[[does/not/exist|X]]', paths)).toBe('X')
   })
 })
