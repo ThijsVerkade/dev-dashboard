@@ -52,5 +52,18 @@ next-env.d.ts
 # IDE
 .idea/
 
-# Knowledge Brain generated vault (built by `npm run brain`)
-/brain
+# Knowledge Brain generated vault (built by `npm run brain`).
+# Notes are regenerated locally and not committed. Only the shared Obsidian
+# config travels: which plugin is enabled + its manifest/styles. The plugin
+# binary (main.js) is fetched by `npm run obsidian:setup`, and the plugin's
+# data.json (contains the API key) + per-user workspace.json stay ignored.
+/brain/*
+!/brain/.obsidian/
+/brain/.obsidian/*
+!/brain/.obsidian/community-plugins.json
+!/brain/.obsidian/plugins/
+/brain/.obsidian/plugins/*
+!/brain/.obsidian/plugins/obsidian-local-rest-api/
+/brain/.obsidian/plugins/obsidian-local-rest-api/*
+!/brain/.obsidian/plugins/obsidian-local-rest-api/manifest.json
+!/brain/.obsidian/plugins/obsidian-local-rest-api/styles.css
