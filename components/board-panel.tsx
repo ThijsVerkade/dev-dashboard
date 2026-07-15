@@ -347,7 +347,12 @@ export function BoardPanel() {
         const toggle = (a: string) => setSelected((cur) => (cur.includes(a) ? cur.filter((x) => x !== a) : [...cur, a]))
         return (
           <div className="space-y-3">
-            {!board.canWrite && (
+            {board.gitlabError && (
+              <p className="font-mono text-[11px] text-amber-500">
+                [ ---- ] {board.gitlabError}. Showing sprint tickets only; MRs, deploys &amp; pipelines unavailable.
+              </p>
+            )}
+            {!board.gitlabError && !board.canWrite && (
               <p className="font-mono text-[11px] text-amber-500">[ ---- ] read-only GitLab token — merge/deploy/tag disabled.</p>
             )}
             {error && <p className="font-mono text-xs text-destructive">[ FAIL ] {error}</p>}

@@ -29,7 +29,9 @@ export type BoardRow = {
   suggestedTag?: string
 }
 export type BoardColumn = { status: string; statusCategory: string; rows: BoardRow[] }
-export type Board = { columns: BoardColumn[]; canWrite: boolean }
+/** `gitlabError` is set when GitLab was unreachable: the board still renders the
+ *  sprint tickets, but MR/deploy/pipeline data is absent and the UI shows a banner. */
+export type Board = { columns: BoardColumn[]; canWrite: boolean; gitlabError?: string }
 
 export type ProjectData = {
   project: string; mrs: MergeRequest[]; pipelines: Pipeline[]; deployments: Deployment[]; tags: Tag[]
@@ -106,6 +108,7 @@ export function assembleBoard(args: {
   logGroups: Record<string, string>
   canWrite: boolean
   stagingJobName: string
+  gitlabError?: string
 }): Board {
   const { issues, projects, mrDetails } = args
   const allMrs = projects.flatMap((p) => p.mrs)
@@ -163,7 +166,7 @@ export function assembleBoard(args: {
     }
   }
   for (const row of rows) cols.get(row.status)!.rows.push(row)
-  return { columns: order.map((s) => cols.get(s)!), canWrite: args.canWrite }
+  return { columns: order.map((s) => cols.get(s)!), canWrite: args.canWrite, gitlabError: args.gitlabError }
 }
 
 export async function getBoard(): Promise<Result<Board>> {
@@ -171,7 +174,18 @@ export async function getBoard(): Promise<Result<Board>> {
   if (!sprint.ok) return sprint
 
   const projectsRes = await getDiscoveredProjects()
-  if (!projectsRes.ok) return projectsRes
+  // GitLab unreachable/misconfigured: don't blank the whole board. Render the sprint
+  // tickets (from Jira) with a banner; MR/deploy/pipeline columns stay empty. Jira
+  // being down is different — that returns above, since there's nothing to show.
+  if (!projectsRes.ok) {
+    return ok(assembleBoard({
+      issues: sprint.data, projects: [], mrDetails: [], logGroups: {},
+      canWrite: false, stagingJobName: dashboardConfig.stagingJobName,
+      gitlabError: projectsRes.reason === 'unconfigured'
+        ? 'GitLab is not configured (set GITLAB_HOST and GITLAB_TOKEN).'
+        : `GitLab unreachable: ${projectsRes.message}`,
+    }))
+  }
 
   // MRs for every project — needed to match sprint tickets to branches. Failures
   // degrade to empty for that project.

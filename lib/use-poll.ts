@@ -7,6 +7,10 @@ export function usePoll<T>(url: string, intervalMs: number) {
   const [loading, setLoading] = useState(true)
   useEffect(() => {
     let active = true
+    // A changed url means a different target: drop the previous target's data and
+    // show loading, rather than briefly rendering stale data from the old url.
+    setData(null)
+    setLoading(true)
     const tick = async () => {
       try {
         const res = await fetch(url)

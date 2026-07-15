@@ -44,14 +44,19 @@ function IssueList({ issues }: { issues: Issue[] }) {
   )
 }
 
+const ENDPOINT: Record<Tab, string> = {
+  mine: '/api/jira/my',
+  sprint: '/api/jira/sprint',
+  recent: '/api/jira/recent',
+}
+
 export function JiraPanel() {
   const [tab, setTab] = useState<Tab>('mine')
 
-  const mine = usePoll<Issue[]>('/api/jira/my', 60000)
-  const sprint = usePoll<Issue[]>('/api/jira/sprint', 60000)
-  const recent = usePoll<Issue[]>('/api/jira/recent', 60000)
-
-  const active = tab === 'mine' ? mine : tab === 'sprint' ? sprint : recent
+  // Poll only the visible tab. Polling all three fired 3× the Jira requests every
+  // cycle for data no one was looking at; the 30s server-side cache keeps switching
+  // back to a recent tab instant.
+  const active = usePoll<Issue[]>(ENDPOINT[tab], 60000)
 
   return (
     <PanelShell title="Jira" result={active.data} loading={active.loading}>

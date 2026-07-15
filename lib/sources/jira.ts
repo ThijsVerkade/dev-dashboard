@@ -2,8 +2,19 @@ import 'server-only'
 import { env } from '@/lib/env'
 import { dashboardConfig } from '@/dashboard.config'
 import { Result, ok, unconfigured, failure } from '@/lib/result'
+import { createTtlCache } from '@/lib/ttl-cache'
+import { fetchWithRetry } from '@/lib/fetch-retry'
 import type { IssueDetail } from '@/lib/agent/prompt'
 import { extractCriteriaFromDescription, type AcceptanceDetail, type AdfDoc } from '@/lib/agent/acceptance-logic'
+
+/**
+ * Cache issue searches for 30s, keyed by JQL. The panel polls three queries every
+ * 60s and re-fetches on every navigation; without this each poll is a live Jira
+ * round-trip (~0.4–2s). Only successful results are cached, and the write paths
+ * below clear it so reassignments show up immediately. 30s < the 60s poll, so it
+ * never adds staleness beyond what polling already implies.
+ */
+const searchCache = createTtlCache<Result<Issue[]>>(30_000, { shouldCache: (r) => r.ok })
 
 export type Issue = {
   key: string
@@ -47,11 +58,15 @@ export function buildJql(where: string, projects: string[]): string {
   return `${where}${scope} ORDER BY updated DESC`
 }
 
-async function search(jql: string): Promise<Result<Issue[]>> {
+function search(jql: string): Promise<Result<Issue[]>> {
+  return searchCache.get(jql, () => searchLive(jql))
+}
+
+async function searchLive(jql: string): Promise<Result<Issue[]>> {
   const cfg = env.jira()
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
-    const res = await fetch(`${cfg.host}/rest/api/3/search/jql`, {
+    const res = await fetchWithRetry(`${cfg.host}/rest/api/3/search/jql`, {
       method: 'POST',
       headers: {
         Authorization: 'Basic ' + Buffer.from(`${cfg.email}:${cfg.token}`).toString('base64'),
@@ -96,7 +111,7 @@ export async function getAssignableUsers(issueKey: string): Promise<Result<JiraU
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
     const url = `${cfg.host}/rest/api/3/user/assignable/search?issueKey=${encodeURIComponent(issueKey)}&maxResults=50`
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       headers: { Authorization: basicAuth(cfg), Accept: 'application/json' },
     })
     if (!res.ok) return failure(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`)
@@ -116,7 +131,7 @@ export async function assignIssue(issueKey: string, accountId: string | null): P
   const cfg = env.jira()
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
-    const res = await fetch(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}/assignee`, {
+    const res = await fetchWithRetry(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}/assignee`, {
       method: 'PUT',
       headers: {
         Authorization: basicAuth(cfg),
@@ -130,6 +145,8 @@ export async function assignIssue(issueKey: string, accountId: string | null): P
       const hint = res.status === 403 ? ' (token lacks Jira write permission)' : ''
       return failure(`Jira ${res.status}${hint}: ${detail}`)
     }
+    // The assignee change must be reflected in the next my/sprint/recent poll.
+    searchCache.clear()
     return ok({ key: issueKey })
   } catch (e) {
     return failure(e instanceof Error ? e.message : 'Jira request failed')
@@ -159,7 +176,7 @@ export async function getIssueDetail(key: string): Promise<Result<IssueDetail>> 
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
     const url = `${cfg.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,labels`
-    const res = await fetch(url, {
+    const res = await fetchWithRetry(url, {
       headers: { Authorization: basicAuth(cfg), Accept: 'application/json' },
     })
     if (!res.ok) return failure(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`)
@@ -186,7 +203,7 @@ export async function setIssueApps(issueKey: string, apps: string[]): Promise<Re
   const cfg = env.jira()
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
-    const getRes = await fetch(
+    const getRes = await fetchWithRetry(
       `${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=labels`,
       { headers: { Authorization: basicAuth(cfg), Accept: 'application/json' } },
     )
@@ -196,7 +213,7 @@ export async function setIssueApps(issueKey: string, apps: string[]): Promise<Re
       ? current.filter((l): l is string => typeof l === 'string' && !l.startsWith(APP_LABEL_PREFIX))
       : []
     const labels = [...kept, ...apps.map((a) => `${APP_LABEL_PREFIX}${a}`)]
-    const res = await fetch(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
+    const res = await fetchWithRetry(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
       method: 'PUT',
       headers: { Authorization: basicAuth(cfg), Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ fields: { labels } }),
@@ -240,7 +257,7 @@ export async function getAcceptanceDetail(key: string): Promise<Result<Acceptanc
   const fields = ['summary', 'description', 'status', 'assignee', ...(field ? [field] : [])].join(',')
   try {
     const url = `${cfg.host}/rest/api/3/issue/${encodeURIComponent(key)}?fields=${fields}`
-    const res = await fetch(url, { headers: { Authorization: basicAuth(cfg), Accept: 'application/json' } })
+    const res = await fetchWithRetry(url, { headers: { Authorization: basicAuth(cfg), Accept: 'application/json' } })
     if (!res.ok) return failure(`Jira ${res.status}: ${(await res.text()).slice(0, 200)}`)
     return ok(mapAcceptanceDetail(await res.json(), cfg.host, field))
   } catch (e) {
@@ -253,6 +270,8 @@ export async function addComment(issueKey: string, body: AdfDoc): Promise<Result
   const cfg = env.jira()
   if (!cfg) return unconfigured('Set JIRA_HOST, JIRA_EMAIL, JIRA_TOKEN in .env.local')
   try {
+    // Plain fetch, no retry: posting a comment is not idempotent — a retry after a
+    // lost response could add the same comment twice.
     const res = await fetch(`${cfg.host}/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
       method: 'POST',
       headers: { Authorization: basicAuth(cfg), Accept: 'application/json', 'Content-Type': 'application/json' },

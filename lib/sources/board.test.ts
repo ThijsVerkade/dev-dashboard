@@ -105,6 +105,20 @@ test('assembleBoard groups rows by status and correlates a ticket', () => {
   expect(board.columns[1].rows[0].mr).toBeUndefined()
 })
 
+test('assembleBoard surfaces gitlabError and still renders ticket rows from sprint data', () => {
+  const issues = [
+    { key: 'PROJ-1', summary: 'one', status: 'In Progress', statusCategory: 'indeterminate', assignee: 'A', priority: '', updated: '', url: 'j1' },
+  ]
+  // GitLab down: no projects, no MR details — the board must still show the ticket.
+  const board = assembleBoard({
+    issues, projects: [], mrDetails: [], logGroups: {}, canWrite: false,
+    stagingJobName: 'deploy:staging', gitlabError: 'GitLab unreachable',
+  })
+  expect(board.gitlabError).toBe('GitLab unreachable')
+  expect(board.columns[0].rows[0].key).toBe('PROJ-1')
+  expect(board.columns[0].rows[0].mr).toBeUndefined()
+})
+
 test('matchedProjectNames returns only projects with a sprint-matched MR (deduped)', () => {
   const issues = [{ key: 'PROJ-1' }, { key: 'PROJ-2' }, { key: 'PROJ-9' }] as unknown as Issue[]
   const mrs = [
